@@ -364,7 +364,7 @@ mod tests {
         let mut r = Position::new();
         r.play_seq("76");
         assert_eq!(l.canonical_key(), r.canonical_key());
-        assert!(l.is_mirrored() !== r.is_mirrored());
+        assert_ne!(l.is_mirrored(), r.is_mirrored());
         assert_eq!(Position::new().canonical_key(), Position::new().key());
     }
 
