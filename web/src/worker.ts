@@ -82,22 +82,37 @@ function u8(moves: number[]): Uint8Array {
 }
 
 let persistTimer = 0;
-let cacheLoaded = false;
+let persisting: Promise<void> = Promise.resolve();
 
 function schedulePersist(eng: Engine): void {
   self.clearTimeout(persistTimer);
   persistTimer = self.setTimeout(() => {
-    if (eng.cacheLen() === 0) return;
-    const bytes = new Uint8Array(eng.cacheSave());
-    void cacheSave(bytes).catch((e) => console.error("proven cache save failed", e));
+    persisting = persisting.then(() => flush(eng)).catch((e) => {
+      console.error("proven cache save failed", e);
+    });
   }, 500);
 }
 
+async function withCacheLock(fn: () => Promise<void>): Promise<void> {
+  const locks = (self as DedicatedWorkerGlobalScope).navigator.locks;
+  if (locks) await locks.request("c4-proven", fn);
+  else await fn();
+}
+
+async function flush(eng: Engine): Promise<void> {
+  await withCacheLock(async () => {
+    const disk = await cacheLoad();
+    if (disk && disk.length >= 12) eng.cacheLoad(disk);
+    if (eng.cacheLen() === 0) return;
+    await cacheSave(new Uint8Array(eng.cacheSave()));
+  });
+}
+
 async function loadPersisted(eng: Engine): Promise<void> {
-  if (cacheLoaded) return;
-  cacheLoaded = true;
-  const buf = await cacheLoad();
-  if (buf && buf.length >= 12) eng.cacheLoad(buf);
+  await withCacheLock(async () => {
+    const buf = await cacheLoad();
+    if (buf && buf.length >= 12) eng.cacheLoad(buf);
+  });
 }
 
 function readHit(
@@ -133,8 +148,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
     if (msg.type === "init") {
       if (!engine) engine = await boot();
       engine.setTimeoutMs(msg.timeoutMs);
-      await loadPersisted(engine);
-      if (msg.bookUrl) await maybeLoadDefaultBook(engine, msg.bookUrl);
+      await Promise.all([loadPersisted(engine), maybeLoadDefaultBook(engine, msg.bookUrl)]);
       bookEnabled = true;
       reply({
         id: msg.id,

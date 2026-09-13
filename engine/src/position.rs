@@ -117,6 +117,13 @@ impl Position {
         Self::canonical_from_key(self.key())
     }
 
+    /// True when this board is the right-left image of the stored canonical key.
+    /// Column scores stored under that key must be reversed for this position.
+    #[inline]
+    pub fn is_mirrored(&self) -> bool {
+        self.key() != self.canonical_key()
+    }
+
     /// Pons base-3 key, already mirrored (`min` of L→R and R→L, last 0 dropped).
     /// Bit length ≈ (moves + 6) log2(3); fits in 32 bits through 14 ply.
     pub fn key3(&self) -> u64 {
@@ -357,6 +364,7 @@ mod tests {
         let mut r = Position::new();
         r.play_seq("76");
         assert_eq!(l.canonical_key(), r.canonical_key());
+        assert!(l.is_mirrored() !== r.is_mirrored());
         assert_eq!(Position::new().canonical_key(), Position::new().key());
     }
 

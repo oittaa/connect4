@@ -2,7 +2,7 @@
 
 use crate::book::Book;
 use crate::position::{column_mask, Position, AREA, WIDTH};
-use crate::proven::{best_of, pack_cols, ProvenTable};
+use crate::proven::{best_of, orient_cols, pack_cols, ProvenTable};
 use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -145,13 +145,25 @@ impl Solver {
         Ok(())
     }
 
+    pub fn merge_proven(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.proven.merge(&ProvenTable::load(bytes)?);
+        Ok(())
+    }
+
     fn opening_score(&self, pos: &Position) -> Option<i32> {
         self.book.get(pos).or_else(|| self.builtin.get(pos))
     }
 
+    fn proven_score(&self, pos: &Position) -> Option<i32> {
+        if self.proven.is_empty() {
+            None
+        } else {
+            self.proven.get(self.tt_key(pos))
+        }
+    }
+
     fn exact_score(&self, pos: &Position) -> Option<i32> {
-        self.opening_score(pos)
-            .or_else(|| self.proven.get(self.tt_key(pos)))
+        self.opening_score(pos).or_else(|| self.proven_score(pos))
     }
 
     fn begin_clock(&mut self) {
@@ -242,7 +254,7 @@ impl Solver {
         if let Some(s) = self.opening_score(&pos) {
             return (s, true);
         }
-        if let Some(s) = self.proven.get(self.tt_key(&pos)) {
+        if let Some(s) = self.proven_score(&pos) {
             return (s, false);
         }
 
@@ -289,8 +301,8 @@ impl Solver {
         let scores = self.score_columns(pos);
         if !self.timed_out {
             if let Some(s) = best_of(&scores) {
-                self.proven
-                    .insert(self.tt_key(&pos), s as i8, Some(pack_cols(&scores)));
+                let cols = orient_cols(pack_cols(&scores), pos.is_mirrored());
+                self.proven.insert(self.tt_key(&pos), s as i8, Some(cols));
             }
         }
         scores
@@ -826,7 +838,62 @@ mod tests {
             .get_entry(pos.canonical_key())
             .expect("analyze should store the parent");
         assert!(e.cols.is_some());
-        let unpacked = crate::proven::unpack_cols(&e.cols.unwrap());
+        let unpacked = crate::proven::unpack_cols(&crate::proven::orient_cols(
+            e.cols.unwrap(),
+            pos.is_mirrored(),
+        ));
         assert_eq!(unpacked, scores);
+    }
+
+    fn mirror_seq(seq: &str) -> String {
+        seq.chars()
+            .map(|c| {
+                let d = (c as u8).saturating_sub(b'1');
+                char::from(b'1' + (6 - d))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn cached_columns_follow_the_board_not_the_canonical_key() {
+        let seq = "2252576253462244111563365343671351441";
+        let mut left = Position::new();
+        assert_eq!(left.play_seq(seq), seq.len());
+        let mir = mirror_seq(seq);
+        let mut right = Position::new();
+        assert_eq!(right.play_seq(&mir), mir.len());
+        assert_eq!(left.canonical_key(), right.canonical_key());
+        assert_ne!(left.key(), right.key(), "fixture must not be symmetric");
+
+        let mut solver = Solver::new();
+        let scores_l = solver.analyze(left);
+        assert!(!solver.timed_out());
+        let e = solver.proven().get_entry(left.canonical_key()).unwrap();
+        let stored = e.cols.unwrap();
+
+        let from_left =
+            crate::proven::unpack_cols(&crate::proven::orient_cols(stored, left.is_mirrored()));
+        let from_right =
+            crate::proven::unpack_cols(&crate::proven::orient_cols(stored, right.is_mirrored()));
+        assert_eq!(from_left, scores_l);
+        let mut expected_r = scores_l;
+        expected_r.reverse();
+        assert_eq!(from_right, expected_r);
+    }
+
+    #[test]
+    fn merge_proven_keeps_local_and_disk_entries() {
+        let mut a = Solver::new();
+        let pos = end_easy_first();
+        let r = a.solve(pos);
+        let blob = a.proven().save();
+
+        let mut b = Solver::new();
+        let mut other = Position::new();
+        other.play_seq("7422341735647741166133573473242566");
+        let r2 = b.solve(other);
+        b.merge_proven(&blob).unwrap();
+        assert_eq!(b.proven().get(pos.canonical_key()), Some(r.score));
+        assert_eq!(b.proven().get(other.canonical_key()), Some(r2.score));
     }
 }

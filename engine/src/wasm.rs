@@ -1,5 +1,5 @@
 use crate::position::Position;
-use crate::proven::unpack_cols;
+use crate::proven::{orient_cols, unpack_cols};
 use crate::solver::{Solver, INVALID_MOVE};
 use wasm_bindgen::prelude::*;
 
@@ -78,14 +78,16 @@ impl WasmEngine {
         };
         let mut out = vec![e.score as i16];
         if let Some(cols) = e.cols {
+            let cols = orient_cols(cols, p.is_mirrored());
             out.extend(unpack_cols(&cols).iter().map(|&s| s as i16));
         }
         out
     }
 
+    /// Merge a persisted blob into the in-memory table (does not replace).
     #[wasm_bindgen(js_name = cacheLoad)]
     pub fn cache_load(&mut self, data: &[u8]) -> bool {
-        self.solver.load_proven(data).is_ok()
+        self.solver.merge_proven(data).is_ok()
     }
 
     #[wasm_bindgen(js_name = cacheSave)]

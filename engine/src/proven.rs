@@ -98,6 +98,23 @@ impl ProvenTable {
         self.insert(key, score, None);
     }
 
+    /// Union with another table. Existing keys keep their score; missing column
+    /// scores are filled in. New keys append (and may FIFO-evict).
+    pub fn merge(&mut self, other: &ProvenTable) {
+        for &key in &other.order {
+            let Some(incoming) = other.map.get(&key) else {
+                continue;
+            };
+            if let Some(e) = self.map.get_mut(&key) {
+                if e.cols.is_none() {
+                    e.cols = incoming.cols;
+                }
+                continue;
+            }
+            self.insert(key, incoming.score, incoming.cols);
+        }
+    }
+
     pub fn save(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(12 + self.order.len() * 17);
         out.extend_from_slice(MAGIC);
@@ -176,6 +193,14 @@ impl ProvenTable {
     }
 }
 
+/// Reverse columns when the board is the mirror of the canonical key.
+pub fn orient_cols(mut cols: [i8; WIDTH], mirrored: bool) -> [i8; WIDTH] {
+    if mirrored {
+        cols.reverse();
+    }
+    cols
+}
+
 pub fn pack_cols(scores: &[i32; WIDTH]) -> [i8; WIDTH] {
     let mut out = [0i8; WIDTH];
     for (i, &s) in scores.iter().enumerate() {
@@ -246,5 +271,28 @@ mod tests {
     fn rejects_bad_magic() {
         assert!(ProvenTable::load(b"XXXX").is_err());
         assert!(ProvenTable::load(&[]).is_err());
+    }
+
+    #[test]
+    fn merge_keeps_both_and_fills_columns() {
+        let mut a = ProvenTable::with_max(8);
+        a.insert_score(1, 4);
+        a.insert_score(2, 0);
+        let mut b = ProvenTable::with_max(8);
+        b.insert(1, 4, Some([1; WIDTH]));
+        b.insert_score(3, -2);
+        a.merge(&b);
+        assert_eq!(a.len(), 3);
+        assert_eq!(a.get(1), Some(4));
+        assert_eq!(a.get_entry(1).unwrap().cols, Some([1; WIDTH]));
+        assert_eq!(a.get(2), Some(0));
+        assert_eq!(a.get(3), Some(-2));
+    }
+
+    #[test]
+    fn orient_reverses_when_mirrored() {
+        let cols = [0i8, 1, 2, 3, 4, 5, 6];
+        assert_eq!(orient_cols(cols, false), cols);
+        assert_eq!(orient_cols(cols, true), [6, 5, 4, 3, 2, 1, 0]);
     }
 }
