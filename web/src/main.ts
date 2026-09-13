@@ -22,9 +22,11 @@ let cursor = 0;
 let roles: [Role, Role] = ["human", "human"];
 let scores: number[] | null = null;
 let analyzing = false;
+let analysisGeneration = 0;
 let thinking = false;
 let engineReady = false;
 let bookOn = true;
+let bookGeneration = 0;
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
@@ -35,6 +37,7 @@ const boardEl = document.getElementById("board")!;
 const scoresEl = document.getElementById("scores")!;
 const statusEl = document.getElementById("status")!;
 const engineLine = document.getElementById("engine-line")!;
+const engineDiagnostics = document.getElementById("engine-diagnostics")!;
 const backBtn = document.getElementById("back") as HTMLButtonElement;
 const fwdBtn = document.getElementById("forward") as HTMLButtonElement;
 const newBtn = document.getElementById("new") as HTMLButtonElement;
@@ -51,6 +54,7 @@ const moveCount = document.getElementById("move-count")!;
 
 function syncDebugControls(): void {
   openingBookOption.hidden = !isDebugMode();
+  engineDiagnostics.hidden = !isDebugMode();
 }
 
 syncDebugControls();
@@ -123,6 +127,7 @@ function renderBoard(animateLast: boolean): void {
   }
 
   const over = gameOver();
+  if (over) engineLine.textContent = "Game over.";
   gameStage.dataset.player = String(win ? 3 - toMove(m) : toMove(m));
   moveCount.textContent = over ? `${cursor} moves` : `Move ${cursor + 1}`;
   const lastCol = m.length ? m[m.length - 1] : -1;
@@ -165,7 +170,7 @@ function renderBoard(animateLast: boolean): void {
     });
   });
 
-  if (analyzeChk.checked && analyzing) {
+  if (!over && analyzeChk.checked && analyzing) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
     for (let i = 0; i < WIDTH; i++) {
@@ -173,7 +178,7 @@ function renderBoard(animateLast: boolean): void {
       span.textContent = "…";
       scoresEl.appendChild(span);
     }
-  } else if (analyzeChk.checked && scores) {
+  } else if (!over && analyzeChk.checked && scores) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
     scores.forEach((s, i) => {
@@ -196,7 +201,7 @@ function renderBoard(animateLast: boolean): void {
     thinking,
   );
   if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
-  statusEl.classList.toggle("thinking", !paused && (thinking || analyzing));
+  statusEl.classList.toggle("thinking", !over && !paused && (thinking || analyzing));
   backBtn.disabled = cursor === 0;
   fwdBtn.disabled = cursor >= history.length;
   pauseBtn.hidden = !hasComputer();
@@ -218,14 +223,15 @@ function applyMove(col: number): void {
   lastDropIndex = cursor;
   cursor++;
   scores = null;
-  analyzing = analyzeChk.checked && engineReady;
+  analysisGeneration++;
+  analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
   renderBoard(true);
-  if (analyzing) engineLine.textContent = "analyzing…";
   afterChange();
 }
 
 function afterChange(): void {
+  if (gameOver()) return;
   if (analyzeChk.checked && engineReady) void requestAnalyze();
   else scheduleComputer();
 }
@@ -286,6 +292,7 @@ async function requestMove(role: Role, generation: number): Promise<void> {
 }
 
 async function requestAnalyze(): Promise<void> {
+  const token = ++analysisGeneration;
   if (!engineReady || gameOver()) {
     analyzing = false;
     renderBoard(false);
@@ -294,13 +301,14 @@ async function requestAnalyze(): Promise<void> {
   analyzing = true;
   engineLine.textContent = "analyzing…";
   renderBoard(false);
-  const token = cursor;
   const r = await send({ type: "analyze", moves: played() });
-  if (token !== cursor) return;
+  if (token !== analysisGeneration || !analyzeChk.checked || gameOver()) return;
   analyzing = false;
   if (r.type === "analyzed") {
     scores = r.scores;
     reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache);
+  } else {
+    engineLine.textContent = r.type === "error" ? r.message : "Analysis unavailable.";
   }
   renderBoard(false);
   scheduleComputer();
@@ -317,7 +325,7 @@ function reportEngine(nodes: number, micros: number, timedOut: boolean, fromCach
     engineLine.textContent = "instant (opening / book)";
     return;
   }
-  const src = bookOn ? "search" : "search (no book)";
+  const src = bookOn ? "search" : "search (embedded book only)";
   engineLine.textContent = timedOut
     ? `Timed out after ${ms.toFixed(0)} ms · ${nodes.toLocaleString()} nodes (result not proven)`
     : `${src}: ${nodes.toLocaleString()} nodes in ${ms < 10 ? ms.toFixed(1) : ms.toFixed(0)} ms` +
@@ -330,10 +338,10 @@ backBtn.addEventListener("click", () => {
   cancelComputerMove();
   cursor--;
   scores = null;
-  analyzing = analyzeChk.checked && engineReady;
+  analysisGeneration++;
+  analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
   renderBoard(false);
-  if (analyzing) engineLine.textContent = "analyzing…";
   afterChange();
 });
 
@@ -343,10 +351,10 @@ fwdBtn.addEventListener("click", () => {
   lastDropIndex = cursor;
   cursor++;
   scores = null;
-  analyzing = analyzeChk.checked && engineReady;
+  analysisGeneration++;
+  analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
   renderBoard(true);
-  if (analyzing) engineLine.textContent = "analyzing…";
   afterChange();
 });
 
@@ -355,17 +363,21 @@ newBtn.addEventListener("click", () => {
   history.length = 0;
   cursor = 0;
   scores = null;
-  analyzing = analyzeChk.checked && engineReady;
+  analysisGeneration++;
+  analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation([]);
   renderBoard(false);
-  if (analyzing) engineLine.textContent = "analyzing…";
   afterChange();
 });
 
 analyzeChk.addEventListener("change", () => {
   if (analyzeChk.checked) void requestAnalyze();
   else {
+    analysisGeneration++;
+    analyzing = false;
+    engineLine.textContent = engineReady ? "Solver ready." : "Getting the solver ready…";
     scoresEl.hidden = true;
+    scheduleComputer();
     renderBoard(false);
   }
 });
@@ -374,14 +386,12 @@ bookChk.addEventListener("change", () => {
   bookOn = bookChk.checked;
   if (!engineReady) return;
   if (bookOn) {
-    void send({
-      type: "init",
-      bookUrl: new URL("books/opening.c4book", document.baseURI).href,
-      timeoutMs,
-    }).then(onReady);
+    loadOpeningBook();
   } else {
-    void send({ type: "clearBook" });
-    engineLine.textContent = "Opening book off. Deep positions will take longer.";
+    const generation = ++bookGeneration;
+    void send({ type: "clearBook" }).then((r) => {
+      if (generation === bookGeneration) reportBook(r);
+    });
   }
 });
 
@@ -433,17 +443,34 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowRight") fwdBtn.click();
 });
 
+function reportBook(r: WorkerRes): void {
+  if (r.type !== "ready" || analyzing || thinking || gameOver()) return;
+  engineLine.textContent = `Solver ready · opening book ${r.bookLen} positions (depth ${r.bookDepth})`;
+}
+
+function loadOpeningBook(): void {
+  const generation = ++bookGeneration;
+  void send({
+    type: "fetchBook",
+    url: new URL("books/opening.c4book", document.baseURI).href,
+  }).then((r) => {
+    if (generation !== bookGeneration || !bookOn) return;
+    reportBook(r);
+    if (r.type === "error" && !analyzing && !thinking && !gameOver()) {
+      engineLine.textContent = `${r.message}. Using embedded 4-ply book.`;
+    }
+  });
+}
+
 function onReady(r: WorkerRes): void {
   if (r.type !== "ready") {
     engineLine.textContent = r.type === "error" ? `Solver failed: ${r.message}` : "Solver failed";
     return;
   }
   engineReady = true;
-  engineLine.textContent =
-    r.bookLen > 0
-      ? `Solver ready · opening book ${r.bookLen} positions (depth ${r.bookDepth})`
-      : "Solver ready · no opening book loaded";
+  reportBook(r);
   afterChange();
+  if (bookOn) loadOpeningBook();
 }
 
 const fromUrl = readMovesFromLocation();
@@ -456,7 +483,6 @@ renderBoard(false);
 
 void send({
   type: "init",
-  bookUrl: new URL("books/opening.c4book", document.baseURI).href,
   timeoutMs: new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs,
 }).then(async (r) => {
   onReady(r);

@@ -49,12 +49,12 @@ impl WasmEngine {
 
     #[wasm_bindgen(js_name = bookDepth)]
     pub fn book_depth(&self) -> u8 {
-        self.solver.book().depth().max(1)
+        self.solver.book().depth()
     }
 
     #[wasm_bindgen(js_name = bookLen)]
     pub fn book_len(&self) -> u32 {
-        (self.solver.book().len() + self.solver.builtin_len()) as u32
+        self.solver.book().len() as u32
     }
 
     /// Unique 49-bit key as a string.

@@ -29,18 +29,10 @@ impl Book {
         Self::default()
     }
 
-    /// Empty board and the seven first moves. Strong scores (Pons / this solver).
-    /// Empty is a first-player win (+1) only from the centre.
-    pub fn opening_1ply() -> Self {
-        let mut b = Self::new();
-        b.insert(Position::new().key3(), 1, 0);
-        let child = [2i8, 1, 0, -1, 0, 1, 2];
-        for col in 0..7 {
-            let mut p = Position::new();
-            p.play_col(col);
-            b.insert(p.key3(), child[col], 1);
-        }
-        b
+    /// Small default book compiled into the engine; no network access needed.
+    pub fn opening_4ply() -> Self {
+        Self::load(include_bytes!("../../books/4ply.c4book"))
+            .expect("embedded 4-ply opening book must be valid")
     }
 
     pub fn is_empty(&self) -> bool {
@@ -53,6 +45,21 @@ impl Book {
 
     pub fn len(&self) -> usize {
         self.keys.len()
+    }
+
+    /// Preserve fallback coverage without replacing entries in this book.
+    pub(crate) fn fill_missing(&mut self, fallback: &Self) {
+        if self.is_empty() {
+            *self = fallback.clone();
+            return;
+        }
+        for (&key, &score) in fallback.keys.iter().zip(&fallback.scores) {
+            if let Err(i) = self.keys.binary_search(&key) {
+                self.keys.insert(i, key);
+                self.scores.insert(i, score);
+            }
+        }
+        self.depth = self.depth.max(fallback.depth);
     }
 
     pub fn insert(&mut self, key: u64, score: i8, moves: u8) {
@@ -137,8 +144,9 @@ mod tests {
 
     #[test]
     fn opening_folds_mirrors() {
-        let b = Book::opening_1ply();
-        assert_eq!(b.len(), 5, "empty + 4 first-move classes");
+        let b = Book::opening_4ply();
+        assert_eq!(b.depth(), 4);
+        assert_eq!(b.len(), 719);
         let mut left = Position::new();
         left.play_col(0);
         let mut right = Position::new();
@@ -146,6 +154,22 @@ mod tests {
         assert_eq!(b.get(&left), Some(2));
         assert_eq!(b.get(&right), Some(2));
         assert_eq!(left.key3(), right.key3());
+    }
+
+    #[test]
+    fn embedded_book_covers_every_position_through_four_plies() {
+        fn check(book: &Book, pos: Position) {
+            assert!(book.get(&pos).is_some(), "missing key {}", pos.key3());
+            if pos.moves() == 4 {
+                return;
+            }
+            for col in 0..7 {
+                let mut child = pos;
+                child.play_col(col);
+                check(book, child);
+            }
+        }
+        check(&Book::opening_4ply(), Position::new());
     }
 
     #[test]
