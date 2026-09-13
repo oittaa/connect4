@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 /// <reference types="vite/client" />
 
-import { cacheGet, cachePut } from "./cache";
+import { cacheLoad, cacheSave } from "./cache";
 
 export type WorkerReq =
   | { id: number; type: "init"; bookUrl?: string; timeoutMs: number }
@@ -61,6 +61,10 @@ type Engine = {
   resetTt(): void;
   bookLen(): number;
   bookDepth(): number;
+  cacheGet(moves: Uint8Array): Int16Array;
+  cacheLoad(data: Uint8Array): boolean;
+  cacheSave(): Uint8Array;
+  cacheLen(): number;
 };
 
 let engine: Engine | null = null;
@@ -75,6 +79,55 @@ async function boot(): Promise<Engine> {
 
 function u8(moves: number[]): Uint8Array {
   return Uint8Array.from(moves);
+}
+
+let persistTimer = 0;
+let persisting: Promise<void> = Promise.resolve();
+
+function schedulePersist(eng: Engine): void {
+  self.clearTimeout(persistTimer);
+  persistTimer = self.setTimeout(() => {
+    persisting = persisting.then(() => flush(eng)).catch((e) => {
+      console.error("proven cache save failed", e);
+    });
+  }, 500);
+}
+
+async function withCacheLock(fn: () => Promise<void>): Promise<void> {
+  const locks = (self as DedicatedWorkerGlobalScope).navigator.locks;
+  if (locks) await locks.request("c4-proven", fn);
+  else await fn();
+}
+
+async function flush(eng: Engine): Promise<void> {
+  await withCacheLock(async () => {
+    const disk = await cacheLoad();
+    if (disk && disk.length >= 12) eng.cacheLoad(disk);
+    if (eng.cacheLen() === 0) return;
+    await cacheSave(new Uint8Array(eng.cacheSave()));
+  });
+}
+
+async function loadPersisted(eng: Engine): Promise<void> {
+  // Startup is a pure read, so it must not take the "c4-proven" write lock:
+  // locks.request() has no timeout, so another tab holding it mid-flush would
+  // stall this worker's "ready" reply indefinitely. The IndexedDB open in
+  // cacheLoad() is itself bounded (OPEN_MS), and a concurrent flush only ever
+  // grows/merges the blob, so an unlocked read is safe.
+  const buf = await cacheLoad();
+  if (buf && buf.length >= 12) eng.cacheLoad(buf);
+}
+
+function readHit(
+  hit: Int16Array,
+  needCols: boolean,
+): { score: number; scores?: number[] } | undefined {
+  if (hit.length < 1) return;
+  if (needCols && hit.length < 8) return;
+  return {
+    score: hit[0],
+    scores: hit.length >= 8 ? Array.from(hit.subarray(1, 8)) : undefined,
+  };
 }
 
 async function maybeLoadDefaultBook(eng: Engine, url?: string): Promise<void> {
@@ -98,7 +151,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
     if (msg.type === "init") {
       if (!engine) engine = await boot();
       engine.setTimeoutMs(msg.timeoutMs);
-      if (msg.bookUrl) await maybeLoadDefaultBook(engine, msg.bookUrl);
+      await Promise.all([loadPersisted(engine), maybeLoadDefaultBook(engine, msg.bookUrl)]);
       bookEnabled = true;
       reply({
         id: msg.id,
@@ -138,7 +191,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "solve": {
         const moves = u8(msg.moves);
         const key = engine.key(moves) ?? "";
-        const hit = key ? await cacheGet(key) : undefined;
+        const hit = readHit(engine.cacheGet(moves), false);
         if (hit) {
           reply({
             id: msg.id,
@@ -156,7 +209,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const nodes = engine.nodeCount();
         const micros = engine.micros();
         const timedOut = engine.timedOut();
-        if (key && !timedOut) await cachePut({ key, score });
+        schedulePersist(engine);
         reply({
           id: msg.id,
           type: "solved",
@@ -172,7 +225,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "analyze": {
         const moves = u8(msg.moves);
         const key = engine.key(moves) ?? "";
-        const hit = key ? await cacheGet(key) : undefined;
+        const hit = readHit(engine.cacheGet(moves), true);
         if (hit?.scores) {
           reply({
             id: msg.id,
@@ -190,8 +243,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const nodes = engine.nodeCount();
         const micros = engine.micros();
         const timedOut = engine.timedOut();
-        const score = raw.reduce((m, s) => (s > m && s !== -1000 ? s : m), -Infinity);
-        if (key && !timedOut) await cachePut({ key, score, scores: raw });
+        schedulePersist(engine);
         reply({
           id: msg.id,
           type: "analyzed",
@@ -207,7 +259,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "bestMove": {
         const moves = u8(msg.moves);
         const key = engine.key(moves) ?? "";
-        const hit = key ? await cacheGet(key) : undefined;
+        const hit = readHit(engine.cacheGet(moves), true);
         if (hit?.scores) {
           let col = 255;
           let best = -Infinity;
@@ -234,6 +286,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const nodes = engine.nodeCount();
         const micros = nodes === 0 ? 0 : engine.micros();
         const timedOut = engine.timedOut();
+        schedulePersist(engine);
         reply({
           id: msg.id,
           type: "moved",

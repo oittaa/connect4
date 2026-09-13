@@ -1,4 +1,5 @@
 use crate::position::Position;
+use crate::proven::{orient_cols, unpack_cols};
 use crate::solver::{Solver, INVALID_MOVE};
 use wasm_bindgen::prelude::*;
 
@@ -56,13 +57,47 @@ impl WasmEngine {
         (self.solver.book().len() + self.solver.builtin_len()) as u32
     }
 
-    /// Unique 49-bit key as a string (safe for IndexedDB / JS).
+    /// Unique 49-bit key as a string.
     pub fn key(&self, moves: &[u8]) -> Option<String> {
         let mut p = Position::new();
         if !p.play_moves(moves) {
             return None;
         }
         Some(p.canonical_key().to_string())
+    }
+
+    /// Miss: empty. Hit: `[score]` or `[score, c0..c6]` (`-1000` = unplayable).
+    #[wasm_bindgen(js_name = cacheGet)]
+    pub fn cache_get(&self, moves: &[u8]) -> Vec<i16> {
+        let mut p = Position::new();
+        if !p.play_moves(moves) {
+            return Vec::new();
+        }
+        let Some(e) = self.solver.proven().get_entry(p.canonical_key()) else {
+            return Vec::new();
+        };
+        let mut out = vec![e.score as i16];
+        if let Some(cols) = e.cols {
+            let cols = orient_cols(cols, p.is_mirrored());
+            out.extend(unpack_cols(&cols).iter().map(|&s| s as i16));
+        }
+        out
+    }
+
+    /// Merge a persisted blob into the in-memory table (does not replace).
+    #[wasm_bindgen(js_name = cacheLoad)]
+    pub fn cache_load(&mut self, data: &[u8]) -> bool {
+        self.solver.merge_proven(data).is_ok()
+    }
+
+    #[wasm_bindgen(js_name = cacheSave)]
+    pub fn cache_save(&self) -> Vec<u8> {
+        self.solver.proven().save()
+    }
+
+    #[wasm_bindgen(js_name = cacheLen)]
+    pub fn cache_len(&self) -> u32 {
+        self.solver.proven().len() as u32
     }
 
     pub fn solve(&mut self, moves: &[u8]) -> i8 {
@@ -79,11 +114,7 @@ impl WasmEngine {
         if !p.play_moves(moves) {
             return vec![INVALID_MOVE as i16; 7];
         }
-        self.solver
-            .analyze(p)
-            .iter()
-            .map(|&s| s as i16)
-            .collect()
+        self.solver.analyze(p).iter().map(|&s| s as i16).collect()
     }
 
     /// 0-based column, or 255 if none.
