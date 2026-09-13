@@ -109,10 +109,13 @@ async function flush(eng: Engine): Promise<void> {
 }
 
 async function loadPersisted(eng: Engine): Promise<void> {
-  await withCacheLock(async () => {
-    const buf = await cacheLoad();
-    if (buf && buf.length >= 12) eng.cacheLoad(buf);
-  });
+  // Startup is a pure read, so it must not take the "c4-proven" write lock:
+  // locks.request() has no timeout, so another tab holding it mid-flush would
+  // stall this worker's "ready" reply indefinitely. The IndexedDB open in
+  // cacheLoad() is itself bounded (OPEN_MS), and a concurrent flush only ever
+  // grows/merges the blob, so an unlocked read is safe.
+  const buf = await cacheLoad();
+  if (buf && buf.length >= 12) eng.cacheLoad(buf);
 }
 
 function readHit(
