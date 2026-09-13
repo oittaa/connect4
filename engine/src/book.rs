@@ -47,6 +47,21 @@ impl Book {
         self.keys.len()
     }
 
+    /// Preserve fallback coverage without replacing entries in this book.
+    pub(crate) fn fill_missing(&mut self, fallback: &Self) {
+        if self.is_empty() {
+            *self = fallback.clone();
+            return;
+        }
+        for (&key, &score) in fallback.keys.iter().zip(&fallback.scores) {
+            if let Err(i) = self.keys.binary_search(&key) {
+                self.keys.insert(i, key);
+                self.scores.insert(i, score);
+            }
+        }
+        self.depth = self.depth.max(fallback.depth);
+    }
+
     pub fn insert(&mut self, key: u64, score: i8, moves: u8) {
         if moves > self.depth {
             self.depth = moves;

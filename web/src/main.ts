@@ -325,7 +325,7 @@ function reportEngine(nodes: number, micros: number, timedOut: boolean, fromCach
     engineLine.textContent = "instant (opening / book)";
     return;
   }
-  const src = bookOn ? "search" : "search (no book)";
+  const src = bookOn ? "search" : "search (embedded book only)";
   engineLine.textContent = timedOut
     ? `Timed out after ${ms.toFixed(0)} ms · ${nodes.toLocaleString()} nodes (result not proven)`
     : `${src}: ${nodes.toLocaleString()} nodes in ${ms < 10 ? ms.toFixed(1) : ms.toFixed(0)} ms` +

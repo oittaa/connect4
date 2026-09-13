@@ -114,11 +114,12 @@ impl Solver {
     }
 
     pub fn load_book(&mut self, bytes: &[u8]) -> Result<(), String> {
-        self.book = Book::load(bytes)?;
+        self.set_book(Book::load(bytes)?);
         Ok(())
     }
 
-    pub fn set_book(&mut self, book: Book) {
+    pub fn set_book(&mut self, mut book: Book) {
+        book.fill_missing(&Book::opening_4ply());
         self.book = book;
     }
 
@@ -747,6 +748,57 @@ mod tests {
         assert_eq!(solver.book().depth(), 4);
         assert_eq!(solver.book().len(), 719);
         assert_eq!(solver.solve(pos).score, initial.score);
+    }
+
+    #[test]
+    fn empty_download_keeps_embedded_opening_coverage() {
+        let mut solver = Solver::with_tt_log(16);
+        let embedded = solver.book().save();
+        let mut empty = Book::new().save();
+        // Even an empty file declaring a deeper book must retain the fallback.
+        empty[5] = 12;
+        solver.load_book(&empty).unwrap();
+        assert_eq!(solver.book().save(), embedded);
+        let scores = solver.analyze(Position::new());
+        assert_eq!(scores, [-2, -1, 0, 1, 0, -1, -2]);
+        assert_eq!(solver.node_count(), 0);
+    }
+
+    #[test]
+    fn shallow_download_keeps_embedded_opening_coverage() {
+        let mut solver = Solver::with_tt_log(16);
+        let embedded = solver.book().save();
+        solver
+            .load_book(include_bytes!("../../books/2ply.c4book"))
+            .unwrap();
+        assert_eq!(solver.book().save(), embedded);
+        let mut pos = Position::new();
+        pos.play_seq("1234");
+        let result = solver.solve(pos);
+        assert!(result.from_book);
+        assert_eq!(result.nodes, 0);
+    }
+
+    #[test]
+    fn sparse_deep_book_keeps_its_entries_and_embedded_coverage() {
+        let embedded = Book::opening_4ply();
+        let deeper = Book::load(include_bytes!("../../books/8ply.c4book")).unwrap();
+        let mut pos = Position::new();
+        pos.play_seq("12345");
+        let score = deeper.get(&pos).unwrap();
+        let mut sparse = Book::new();
+        sparse.insert(pos.key3(), score as i8, pos.moves());
+
+        let mut solver = Solver::with_tt_log(16);
+        solver.set_book(sparse);
+        assert_eq!(solver.book().depth(), 5);
+        assert_eq!(solver.book().len(), embedded.len() + 1);
+        assert_eq!(solver.solve(pos).score, score);
+        assert_eq!(solver.node_count(), 0);
+        // Keep the complete embedded book and the downloaded deeper entry.
+        let mut expected = embedded;
+        expected.insert(pos.key3(), score as i8, pos.moves());
+        assert_eq!(solver.book().save(), expected.save());
     }
 
     #[test]

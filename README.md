@@ -40,6 +40,8 @@ depth (`books/2ply.c4book`). The engine embeds `books/4ply.c4book` (3,607 bytes)
 so early positions work as soon as WebAssembly is ready. The web app downloads
 `books/opening.c4book` in the background and replaces the embedded book only
 after a successful load. Failed downloads leave the smaller book available.
+Valid empty, shallower, or sparse books retain the embedded 4-ply coverage:
+missing entries are filled from the embedded book before it is replaced.
 Copy the latest larger book to `web/public/books/opening.c4book` when deploying;
 the current version is 8 ply, and the same path can serve deeper books later.
 
