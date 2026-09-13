@@ -1,69 +1,59 @@
 const DB_NAME = "c4-cache";
-const STORE = "positions";
-const VERSION = 1;
-const MAX_ENTRIES = 50_000;
+const DB_VERSION = 2;
+const STORE = "blob";
+const RECORD = "proven";
 
-export interface CachedPos {
-  key: string;
-  score: number;
-  scores?: number[];
-  ts: number;
-  v: number;
-}
+let dbp: Promise<IDBDatabase> | undefined;
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "key" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  if (!dbp) {
+    dbp = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (db.objectStoreNames.contains("positions")) {
+          db.deleteObjectStore("positions");
+        }
+        if (!db.objectStoreNames.contains(STORE)) {
+          db.createObjectStore(STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => {
+        dbp = undefined;
+        reject(req.error);
+      };
+    });
+  }
+  return dbp;
 }
 
-export async function cacheGet(key: string): Promise<CachedPos | undefined> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).get(key);
-    req.onsuccess = () => {
-      const v = req.result as CachedPos | undefined;
-      resolve(v && v.v === VERSION ? v : undefined);
-    };
-    req.onerror = () => reject(req.error);
-  });
+export async function cacheLoad(): Promise<Uint8Array | undefined> {
+  try {
+    const db = await openDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).get(RECORD);
+      req.onsuccess = () => {
+        const v = req.result;
+        if (v instanceof ArrayBuffer) resolve(new Uint8Array(v));
+        else if (v instanceof Uint8Array) resolve(v);
+        else resolve(undefined);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return undefined;
+  }
 }
 
-export async function cachePut(entry: Omit<CachedPos, "ts" | "v">): Promise<void> {
+export async function cacheSave(data: Uint8Array): Promise<void> {
   const db = await openDb();
+  const copy = data.slice();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put({ ...entry, ts: Date.now(), v: VERSION });
+    tx.objectStore(STORE).put(copy, RECORD);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
-  void evictIfNeeded(db);
-}
-
-async function evictIfNeeded(db: IDBDatabase): Promise<void> {
-  const tx = db.transaction(STORE, "readwrite");
-  const store = tx.objectStore(STORE);
-  const count: number = await new Promise((resolve, reject) => {
-    const r = store.count();
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-  if (count <= MAX_ENTRIES) return;
-  const all: CachedPos[] = await new Promise((resolve, reject) => {
-    const r = store.getAll();
-    r.onsuccess = () => resolve(r.result as CachedPos[]);
-    r.onerror = () => reject(r.error);
-  });
-  all.sort((a, b) => a.ts - b.ts);
-  const drop = all.slice(0, all.length - MAX_ENTRIES);
-  for (const e of drop) store.delete(e.key);
 }

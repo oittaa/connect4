@@ -1,5 +1,6 @@
 pub mod book;
 pub mod position;
+pub mod proven;
 pub mod solver;
 pub mod tt;
 

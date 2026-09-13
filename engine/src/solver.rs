@@ -2,6 +2,7 @@
 
 use crate::book::Book;
 use crate::position::{column_mask, Position, AREA, WIDTH};
+use crate::proven::{best_of, pack_cols, ProvenTable};
 use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -23,6 +24,7 @@ pub struct Solver {
     tt: Table,
     book: Book,
     builtin: Book,
+    proven: ProvenTable,
     nodes: u64,
     timed_out: bool,
     check_counter: u32,
@@ -53,6 +55,7 @@ impl Solver {
             tt: Table::new(log_size),
             book: Book::new(),
             builtin: Book::opening_1ply(),
+            proven: ProvenTable::new(),
             nodes: 0,
             timed_out: false,
             check_counter: 0,
@@ -133,8 +136,22 @@ impl Solver {
         self.builtin.len()
     }
 
-    fn book_score(&self, pos: &Position) -> Option<i32> {
+    pub fn proven(&self) -> &ProvenTable {
+        &self.proven
+    }
+
+    pub fn load_proven(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.proven = ProvenTable::load(bytes)?;
+        Ok(())
+    }
+
+    fn opening_score(&self, pos: &Position) -> Option<i32> {
         self.book.get(pos).or_else(|| self.builtin.get(pos))
+    }
+
+    fn exact_score(&self, pos: &Position) -> Option<i32> {
+        self.opening_score(pos)
+            .or_else(|| self.proven.get(self.tt_key(pos)))
     }
 
     fn begin_clock(&mut self) {
@@ -222,8 +239,11 @@ impl Solver {
     }
 
     fn score_position(&mut self, pos: Position, weak: bool) -> (i32, bool) {
-        if let Some(s) = self.book_score(&pos) {
+        if let Some(s) = self.opening_score(&pos) {
             return (s, true);
+        }
+        if let Some(s) = self.proven.get(self.tt_key(&pos)) {
+            return (s, false);
         }
 
         if pos.can_win_next() {
@@ -254,6 +274,9 @@ impl Solver {
                 min = r;
             }
         }
+        if !self.timed_out && !weak {
+            self.proven.insert_score(self.tt_key(&pos), min as i8);
+        }
         (min, false)
     }
 
@@ -263,7 +286,14 @@ impl Solver {
         // Score columns directly (centre first). Solving the parent first is a
         // TT warmup, but on an empty board it burns the time budget and we
         // return a single unfinished edge column as if it were best.
-        self.score_columns(pos)
+        let scores = self.score_columns(pos);
+        if !self.timed_out {
+            if let Some(s) = best_of(&scores) {
+                self.proven
+                    .insert(self.tt_key(&pos), s as i8, Some(pack_cols(&scores)));
+            }
+        }
+        scores
     }
 
     fn score_columns(&mut self, pos: Position) -> [i32; WIDTH] {
@@ -366,6 +396,10 @@ impl Solver {
             }
         }
 
+        if let Some(s) = self.exact_score(&pos) {
+            return s;
+        }
+
         let key = self.tt_key(&pos);
         if let Some((val, flag)) = self.tt.get(key) {
             if flag == FLAG_LOWER {
@@ -383,10 +417,6 @@ impl Solver {
                     }
                 }
             }
-        }
-
-        if let Some(s) = self.book_score(&pos) {
-            return s;
         }
 
         let mut moves = MoveList::new();
@@ -492,9 +522,7 @@ impl Solver {
         let mut jobs = Vec::new();
         Self::collect_missing(pos, max_depth, book, &mut expanded, &mut jobs);
         let total = jobs.len();
-        eprintln!(
-            "queued {total} unique positions to solve, {threads} threads (private TT each)"
-        );
+        eprintln!("queued {total} unique positions to solve, {threads} threads (private TT each)");
         if total == 0 {
             return;
         }
@@ -678,7 +706,10 @@ mod tests {
         let mut p = Position::new();
         p.play_seq("12");
         let r = s.solve(p);
-        assert!(r.timed_out, "1ms search of a 2-ply position should not finish");
+        assert!(
+            r.timed_out,
+            "1ms search of a 2-ply position should not finish"
+        );
     }
 
     #[test]
@@ -736,11 +767,66 @@ mod tests {
             solver.reset();
             let r = solver.solve(pos);
             assert_eq!(
-                r.score, expect,
+                r.score,
+                expect,
                 "line {} seq={seq} nodes={}",
                 n + 1,
                 r.nodes
             );
         }
+    }
+
+    fn end_easy_first() -> Position {
+        let mut pos = Position::new();
+        let seq = "2252576253462244111563365343671351441";
+        assert_eq!(pos.play_seq(seq), seq.len());
+        pos
+    }
+
+    #[test]
+    fn proven_hit_after_tt_reset_is_zero_nodes() {
+        let mut solver = Solver::new();
+        let pos = end_easy_first();
+        let r1 = solver.solve(pos);
+        assert!(!r1.timed_out);
+        assert_eq!(r1.score, -1);
+        assert!(
+            r1.nodes > 0 || solver.proven().get(pos.canonical_key()) == Some(-1),
+            "search or trivial prove should populate the table"
+        );
+        solver.reset();
+        let r2 = solver.solve(pos);
+        assert_eq!(r2.score, -1);
+        assert_eq!(r2.nodes, 0);
+        assert!(!r2.from_book);
+    }
+
+    #[test]
+    fn proven_blob_reloads_into_fresh_solver() {
+        let mut solver = Solver::new();
+        let pos = end_easy_first();
+        let r1 = solver.solve(pos);
+        assert!(!r1.timed_out);
+        let blob = solver.proven().save();
+        let mut s2 = Solver::new();
+        s2.load_proven(&blob).unwrap();
+        let r2 = s2.solve(pos);
+        assert_eq!(r2.score, r1.score);
+        assert_eq!(r2.nodes, 0);
+    }
+
+    #[test]
+    fn analyze_stores_parent_columns() {
+        let mut solver = Solver::new();
+        let pos = end_easy_first();
+        let scores = solver.analyze(pos);
+        assert!(!solver.timed_out());
+        let e = solver
+            .proven()
+            .get_entry(pos.canonical_key())
+            .expect("analyze should store the parent");
+        assert!(e.cols.is_some());
+        let unpacked = crate::proven::unpack_cols(&e.cols.unwrap());
+        assert_eq!(unpacked, scores);
     }
 }
