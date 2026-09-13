@@ -1,6 +1,5 @@
 # Connect 4
 
-Perfect-play Connect 4 for [vuojolahti.fi/connect4/](https://vuojolahti.fi/connect4/).
 The solver is a WebAssembly engine (49-bit bitboard + negamax). Human vs human
 works immediately; computer seats and analysis wait on the engine.
 
