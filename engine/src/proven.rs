@@ -99,7 +99,13 @@ impl ProvenTable {
     }
 
     /// Union with another table. Existing keys keep their score; missing column
-    /// scores are filled in. New keys append (and may FIFO-evict).
+    /// scores are filled in. New keys only fill spare capacity.
+    ///
+    /// A new key from `other` is never inserted by evicting an existing local
+    /// entry. Local entries are typically the most recently solved positions,
+    /// and `flush` merges the on-disk snapshot back into memory before saving;
+    /// evicting local entries here would let that save silently drop freshly
+    /// proven results.
     pub fn merge(&mut self, other: &ProvenTable) {
         for &key in &other.order {
             let Some(incoming) = other.map.get(&key) else {
@@ -109,6 +115,9 @@ impl ProvenTable {
                 if e.cols.is_none() {
                     e.cols = incoming.cols;
                 }
+                continue;
+            }
+            if self.map.len() >= self.max {
                 continue;
             }
             self.insert(key, incoming.score, incoming.cols);
@@ -287,6 +296,27 @@ mod tests {
         assert_eq!(a.get_entry(1).unwrap().cols, Some([1; WIDTH]));
         assert_eq!(a.get(2), Some(0));
         assert_eq!(a.get(3), Some(-2));
+    }
+
+    #[test]
+    fn merge_keeps_recent_local_entries_at_capacity() {
+        // On-disk snapshot filled to capacity: [A, B] (A oldest).
+        let mut disk = ProvenTable::with_max(2);
+        disk.insert_score(0xA, 1);
+        disk.insert_score(0xB, 2);
+
+        // In-memory table after evicting A to make room for a freshly solved C.
+        let mut mem = ProvenTable::with_max(2);
+        mem.insert_score(0xB, 2);
+        mem.insert_score(0xC, 3);
+
+        // flush() merges the on-disk snapshot back into memory before saving.
+        mem.merge(&disk);
+
+        assert_eq!(mem.len(), 2);
+        assert_eq!(mem.get(0xC), Some(3), "freshly solved entry must survive merge");
+        assert_eq!(mem.get(0xB), Some(2));
+        assert!(mem.get(0xA).is_none(), "capacity still bounds the table");
     }
 
     #[test]
