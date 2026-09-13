@@ -1,0 +1,24 @@
+[package]
+name = "engine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Perfect-play Connect 4 solver (bitboard + negamax)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "c4solver"
+path = "src/main.rs"
+
+[features]
+default = []
+wasm = ["wasm-bindgen", "js-sys"]
+
+[dependencies]
+wasm-bindgen = { version = "=0.2.128", optional = true }
+js-sys = { version = "0.3", optional = true }
+
+[target.'cfg(all(unix, not(target_arch = "wasm32")))'.dependencies]
+libc = "0.2"

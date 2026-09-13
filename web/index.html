@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect 4</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="top">
+        <h1>Connect 4</h1>
+        <p class="tag">Perfect play in your browser. Default is human vs human.</p>
+      </header>
+
+      <section class="seats" aria-label="Players">
+        <fieldset class="seat" data-player="0">
+          <legend>Red <span class="who">first</span></legend>
+          <div class="roles" role="radiogroup" aria-label="Red player">
+            <label><input type="radio" name="role0" value="human" checked /> Human</label>
+            <label><input type="radio" name="role0" value="easy" /> Easy</label>
+            <label><input type="radio" name="role0" value="medium" /> Medium</label>
+            <label><input type="radio" name="role0" value="perfect" /> Perfect</label>
+          </div>
+        </fieldset>
+        <fieldset class="seat" data-player="1">
+          <legend>Yellow</legend>
+          <div class="roles" role="radiogroup" aria-label="Yellow player">
+            <label><input type="radio" name="role1" value="human" checked /> Human</label>
+            <label><input type="radio" name="role1" value="easy" /> Easy</label>
+            <label><input type="radio" name="role1" value="medium" /> Medium</label>
+            <label><input type="radio" name="role1" value="perfect" /> Perfect</label>
+          </div>
+        </fieldset>
+      </section>
+
+      <p id="status" class="status" aria-live="polite">Red to move</p>
+
+      <div class="board-wrap">
+        <div id="scores" class="scores" hidden></div>
+        <div id="board" class="board" role="grid" aria-label="Connect 4 board"></div>
+      </div>
+
+      <div class="controls">
+        <button type="button" id="back" title="Undo (Z or ←)">Back</button>
+        <button type="button" id="forward" title="Redo (Y or →)">Forward</button>
+        <button type="button" id="new">New game</button>
+        <label class="chk"><input type="checkbox" id="analyze" /> Show best moves</label>
+        <label class="chk"><input type="checkbox" id="book" checked /> Opening book</label>
+      </div>
+
+      <div class="controls extra">
+        <label>Show-match delay
+          <input type="range" id="delay" min="0" max="1500" step="50" value="400" />
+          <span id="delay-label">400 ms</span>
+        </label>
+        <button type="button" id="pause" hidden>Pause</button>
+        <button type="button" id="copy-link">Copy link</button>
+      </div>
+
+      <p id="engine-line" class="engine-line">Loading solver… Human vs human works now.</p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

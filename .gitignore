@@ -1,0 +1,16 @@
+# Rust
+/target
+**/target/
+**/*.rs.bk
+*.pdb
+
+# Node / Vite
+web/node_modules
+web/dist
+web/src/pkg
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+.idea/
