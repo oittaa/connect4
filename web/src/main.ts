@@ -14,7 +14,7 @@ import {
   toMove,
   type Role,
 } from "./game";
-import { readMovesFromLocation, writeMovesToLocation } from "./url";
+import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import type { WorkerReq, WorkerRes } from "./worker";
 
 const history: number[] = [];
@@ -40,10 +40,21 @@ const fwdBtn = document.getElementById("forward") as HTMLButtonElement;
 const newBtn = document.getElementById("new") as HTMLButtonElement;
 const analyzeChk = document.getElementById("analyze") as HTMLInputElement;
 const bookChk = document.getElementById("book") as HTMLInputElement;
+const openingBookOption = document.getElementById("opening-book-option")!;
 const delay = document.getElementById("delay") as HTMLInputElement;
 const delayLabel = document.getElementById("delay-label")!;
 const pauseBtn = document.getElementById("pause") as HTMLButtonElement;
 const copyBtn = document.getElementById("copy-link") as HTMLButtonElement;
+const copyLabel = document.getElementById("copy-label")!;
+const gameStage = document.querySelector<HTMLElement>(".game-stage")!;
+const moveCount = document.getElementById("move-count")!;
+
+function syncDebugControls(): void {
+  openingBookOption.hidden = !isDebugMode();
+}
+
+syncDebugControls();
+window.addEventListener("hashchange", syncDebugControls);
 
 const mobile = matchMedia("(max-width: 700px), (pointer: coarse)").matches;
 const timeoutMs = mobile ? 6_000 : 12_000;
@@ -81,6 +92,10 @@ function currentRole(): Role {
   return roles[toMove(played()) - 1];
 }
 
+function hasComputer(): boolean {
+  return roles.some((role) => role !== "human");
+}
+
 function renderBoard(animateLast: boolean): void {
   const m = played();
   const g = playMoves(m);
@@ -108,11 +123,14 @@ function renderBoard(animateLast: boolean): void {
   }
 
   const over = gameOver();
+  gameStage.dataset.player = String(win ? 3 - toMove(m) : toMove(m));
+  moveCount.textContent = over ? `${cursor} moves` : `Move ${cursor + 1}`;
   const lastCol = m.length ? m[m.length - 1] : -1;
   const lastRow = lastCol >= 0 ? g.height[lastCol] - 1 : -1;
   boardEl.querySelectorAll<HTMLButtonElement>(".col").forEach((col, c) => {
     col.classList.toggle("best-col", best.includes(c) && !over);
     col.classList.toggle("disabled", over || g.height[c] >= HEIGHT);
+    col.disabled = over || g.height[c] >= HEIGHT;
     col.querySelectorAll(".cell").forEach((cellEl) => {
       const cell = cellEl as HTMLElement;
       const row = Number(cell.dataset.row);
@@ -177,11 +195,11 @@ function renderBoard(animateLast: boolean): void {
     analyzeChk.checked && !analyzing ? scores : null,
     thinking,
   );
-  statusEl.classList.toggle("thinking", thinking || analyzing);
+  if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
+  statusEl.classList.toggle("thinking", !paused && (thinking || analyzing));
   backBtn.disabled = cursor === 0;
   fwdBtn.disabled = cursor >= history.length;
-  const bothCpu = roles[0] !== "human" && roles[1] !== "human";
-  pauseBtn.hidden = !bothCpu;
+  pauseBtn.hidden = !hasComputer();
   pauseBtn.textContent = paused ? "Resume" : "Pause";
 }
 
@@ -194,6 +212,7 @@ function tryDrop(col: number): void {
 }
 
 function applyMove(col: number): void {
+  cancelComputerMove();
   history.splice(cursor);
   history.push(col);
   lastDropIndex = cursor;
@@ -212,13 +231,25 @@ function afterChange(): void {
 }
 
 let cpuTimer = 0;
-function scheduleComputer(): void {
+let cpuGeneration = 0;
+
+function cancelComputerMove(): void {
   window.clearTimeout(cpuTimer);
+  // A solver reply can arrive after pausing or navigating back to the same turn.
+  cpuGeneration++;
+  thinking = false;
+}
+
+function scheduleComputer(): void {
+  cancelComputerMove();
+  if (!hasComputer()) paused = false;
   if (gameOver() || paused) return;
   const role = currentRole();
   if (role === "human") return;
+  const generation = cpuGeneration;
   if (role === "easy") {
     cpuTimer = window.setTimeout(() => {
+      if (generation !== cpuGeneration || paused) return;
       const col = easyMove(played());
       if (col !== null) applyMove(col);
     }, delayMs);
@@ -231,14 +262,14 @@ function scheduleComputer(): void {
   thinking = true;
   renderBoard(false);
   cpuTimer = window.setTimeout(() => {
-    void requestMove(role);
+    void requestMove(role, generation);
   }, delayMs);
 }
 
-async function requestMove(role: Role): Promise<void> {
-  const token = cursor;
+async function requestMove(role: Role, generation: number): Promise<void> {
+  if (generation !== cpuGeneration || paused) return;
   const r = await send({ type: "bestMove", moves: played() });
-  if (token !== cursor) return;
+  if (generation !== cpuGeneration || paused) return;
   thinking = false;
   if (r.type !== "moved") {
     engineLine.textContent = r.type === "error" ? r.message : "solver error";
@@ -295,6 +326,8 @@ function reportEngine(nodes: number, micros: number, timedOut: boolean, fromCach
 
 backBtn.addEventListener("click", () => {
   if (cursor === 0) return;
+  if (hasComputer()) paused = true;
+  cancelComputerMove();
   cursor--;
   scores = null;
   analyzing = analyzeChk.checked && engineReady;
@@ -306,6 +339,7 @@ backBtn.addEventListener("click", () => {
 
 fwdBtn.addEventListener("click", () => {
   if (cursor >= history.length) return;
+  cancelComputerMove();
   lastDropIndex = cursor;
   cursor++;
   scores = null;
@@ -317,6 +351,7 @@ fwdBtn.addEventListener("click", () => {
 });
 
 newBtn.addEventListener("click", () => {
+  cancelComputerMove();
   history.length = 0;
   cursor = 0;
   scores = null;
@@ -353,10 +388,12 @@ bookChk.addEventListener("change", () => {
 delay.addEventListener("input", () => {
   delayMs = Number(delay.value);
   delayLabel.textContent = `${delayMs} ms`;
+  delay.style.setProperty("--range-progress", `${(delayMs / Number(delay.max)) * 100}%`);
 });
 
 pauseBtn.addEventListener("click", () => {
   paused = !paused;
+  if (paused) cancelComputerMove();
   renderBoard(false);
   if (!paused) scheduleComputer();
 });
@@ -365,10 +402,10 @@ copyBtn.addEventListener("click", async () => {
   writeMovesToLocation(played());
   try {
     await navigator.clipboard.writeText(location.href);
-    copyBtn.textContent = "Copied";
-    setTimeout(() => (copyBtn.textContent = "Copy link"), 1200);
+    copyLabel.textContent = "Link copied!";
+    setTimeout(() => (copyLabel.textContent = "Copy game link"), 1200);
   } catch {
-    copyBtn.textContent = "Copy the address bar";
+    copyLabel.textContent = "Copy the address bar";
   }
 });
 
