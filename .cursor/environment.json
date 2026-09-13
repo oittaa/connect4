@@ -1,0 +1,17 @@
+{
+  "name": "Connect 4 (Rust engine + WASM web)",
+  "install": "rustup default stable && rustup target add wasm32-unknown-unknown && cargo install wasm-bindgen-cli --version 0.2.128 --locked && (cd web && npm ci) && ./scripts/build-wasm.sh",
+  "terminals": [
+    {
+      "name": "web",
+      "command": "cd web && npm run dev",
+      "description": "Vite dev server for the Connect 4 web UI on http://localhost:5173/ (loads the WASM solver)."
+    }
+  ],
+  "ports": [
+    {
+      "name": "web",
+      "port": 5173
+    }
+  ]
+}
