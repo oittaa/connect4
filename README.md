@@ -36,8 +36,16 @@ Independent implementation of published techniques (MIT):
 Pons’ and Steininger’s source is AGPL; this tree does not copy it.
 
 Opening book: `C4BK` v2, sorted 4-byte `key3` + 1-byte score. Name files by
-depth (`books/2ply.c4book`). The web app loads `books/opening.c4book` — copy
-the latest generated book there when deploying.
+depth (`books/2ply.c4book`). The engine embeds `books/4ply.c4book` (3,607 bytes)
+so early positions work as soon as WebAssembly is ready. The web app downloads
+`books/opening.c4book` in the background and replaces the embedded book only
+after a successful load. Failed downloads leave the smaller book available.
+Copy the latest larger book to `web/public/books/opening.c4book` when deploying;
+the current version is 8 ply, and the same path can serve deeper books later.
+
+The opening-book toggle and solver diagnostics are visible only with `#DEBUG`
+(or `#moves=44452&DEBUG`). Turning the toggle off cancels any pending book
+download and restores the embedded 4-ply book.
 
 ```bash
 c4solver gen-book --depth 2 --out books/2ply.c4book

@@ -75,7 +75,6 @@ h1 { margin: 0; font-size: 36px; line-height: 1.12; letter-spacing: -1.8px; font
 .board-hint { margin: 18px 0 0; text-align: center; color: #6d796d; font-size: 11px; line-height: 1.6; }
 kbd { font: inherit; }
 .settings-panel { padding: 26px 24px 22px; }
-.eyebrow { display: block; margin: 0; color: #707b6c; font-size: 10px; line-height: 1.5; font-weight: 750; letter-spacing: 1.5px; }
 .panel-heading h2 { margin: 7px 0 7px; font-size: 20px; font-weight: 700; letter-spacing: -0.6px; }
 .panel-heading p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .seats { display: grid; gap: 22px; margin-top: 26px; }
@@ -114,11 +113,6 @@ input[type="range"]:focus-visible { outline: 3px solid #83ac96; outline-offset: 
 .range-scale { display: flex; justify-content: space-between; margin-bottom: 10px; color: #6f7c67; font-size: 10px; }
 .button-pause { width: 100%; margin-top: 14px; background: #edf1e7; color: #385542; }
 .button-pause:hover { background: #e2eadb; }
-.how-to { display: flex; align-items: center; gap: 12px; margin-top: 24px; padding: 16px 12px; border-radius: 11px; background: #f5f4ed; }
-.four-discs { display: flex; gap: 3px; flex-shrink: 0; transform: rotate(-35deg); }
-.four-discs i { width: 7px; height: 7px; border-radius: 50%; background: #d4b368; }
-.how-to p { margin: 0; font-size: 11px; font-weight: 600; line-height: 1.65; }
-.how-to p span { font-size: 10px; color: #6f7c67; font-weight: 400; }
 .page-footer { display: flex; align-items: baseline; justify-content: flex-end; gap: 20px; margin-top: 23px; padding: 0 3px; color: #6e7a69; font-size: 11px; line-height: 1.7; }
 .engine-line { margin: 0; text-align: right; max-width: 65%; font-variant-numeric: tabular-nums; }
 @media (min-width: 1450px) { .page { padding-top: 60px; } }
@@ -145,7 +139,6 @@ input[type="range"]:focus-visible { outline: 3px solid #83ac96; outline-offset: 
   .roles span { font-size: 12px; }
   .option-title { font-size: 13px; }
   .option-description { font-size: 11px; }
-  .how-to { justify-content: center; }
   .page-footer { flex-direction: column; align-items: center; gap: 5px; margin-top: 18px; }
   .engine-line { max-width: 100%; text-align: center; }
 }

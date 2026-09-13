@@ -46,7 +46,7 @@
         <p class="board-hint">Click a column to drop a disc<span class="keyboard-hint"> · or use keys <kbd>1</kbd>–<kbd>7</kbd></span></p>
       </section>
       <aside class="settings-panel" aria-label="Game settings">
-        <div class="panel-heading"><span class="eyebrow">THE MATCHUP</span><h2>Make it your game</h2><p>Play a friend or take on the computer.</p></div>
+        <div class="panel-heading"><h2>Make it your game</h2><p>Play a friend or take on the computer.</p></div>
         <section class="seats" aria-label="Players">
           <fieldset class="seat" data-player="0">
             <legend><span class="player-disc red" aria-hidden="true"></span>Red<span class="who">Goes first</span></legend>
@@ -68,9 +68,8 @@
           </fieldset>
         </section>
         <section class="settings-section" aria-label="Game options">
-          <h3 class="eyebrow">A LITTLE ASSISTANCE</h3>
           <label class="toggle-row">
-            <span class="toggle-copy"><span class="option-title">Show best moves</span><span class="option-description">Find your strongest next move.</span></span>
+            <span class="toggle-copy"><span class="option-title">Show best moves</span></span>
             <input type="checkbox" id="analyze" class="toggle-input" role="switch" /><span class="toggle-track" aria-hidden="true"></span>
           </label>
           <label class="toggle-row" id="opening-book-option" hidden>
@@ -80,15 +79,13 @@
         </section>
         <section class="settings-section pace-section" aria-label="Computer timing">
           <div class="range-heading"><label for="delay" class="option-title">Computer pace</label><output id="delay-label" for="delay">400 ms</output></div>
-          <input type="range" id="delay" min="0" max="1500" step="50" value="400" style="--range-progress: 26.667%" aria-describedby="pace-help" />
+          <input type="range" id="delay" min="0" max="1500" step="50" value="400" style="--range-progress: 26.667%" />
           <div class="range-scale" aria-hidden="true"><span>Quick</span><span>Unhurried</span></div>
-          <p id="pace-help" class="option-description">A little breathing room between moves.</p>
           <button type="button" id="pause" class="button button-pause" hidden>Pause</button>
         </section>
-        <div class="how-to"><div class="four-discs" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p>Four together wins.<br /><span>Across, up, or on the diagonal.</span></p></div>
       </aside>
     </div>
-    <footer class="page-footer"><p id="engine-line" class="engine-line" role="status">Getting the solver ready…</p></footer>
+    <footer id="engine-diagnostics" class="page-footer" hidden><p id="engine-line" class="engine-line" role="status">Getting the solver ready…</p></footer>
   </main>
   <script type="module" src="/src/main.ts"></script>
 </body>

@@ -23,7 +23,6 @@ pub struct SolveResult {
 pub struct Solver {
     tt: Table,
     book: Book,
-    builtin: Book,
     proven: ProvenTable,
     nodes: u64,
     timed_out: bool,
@@ -53,8 +52,7 @@ impl Solver {
         let log_size = log_size.clamp(16, 27);
         Self {
             tt: Table::new(log_size),
-            book: Book::new(),
-            builtin: Book::opening_1ply(),
+            book: Book::opening_4ply(),
             proven: ProvenTable::new(),
             nodes: 0,
             timed_out: false,
@@ -125,15 +123,12 @@ impl Solver {
     }
 
     pub fn clear_book(&mut self) {
-        self.book = Book::new();
+        // Unload the downloaded book and restore the embedded fallback.
+        self.book = Book::opening_4ply();
     }
 
     pub fn book(&self) -> &Book {
         &self.book
-    }
-
-    pub fn builtin_len(&self) -> usize {
-        self.builtin.len()
     }
 
     pub fn proven(&self) -> &ProvenTable {
@@ -151,7 +146,7 @@ impl Solver {
     }
 
     fn opening_score(&self, pos: &Position) -> Option<i32> {
-        self.book.get(pos).or_else(|| self.builtin.get(pos))
+        self.book.get(pos)
     }
 
     fn proven_score(&self, pos: &Position) -> Option<i32> {
@@ -711,17 +706,47 @@ mod tests {
     }
 
     #[test]
-    fn timeout_aborts_empty() {
+    fn timeout_aborts_search_beyond_embedded_book() {
         let mut s = Solver::new();
         s.set_timeout_ms(1);
-        // Builtin 1-ply book answers empty instantly; use a 2-ply line instead.
+        // Search beyond the embedded 4-ply book.
         let mut p = Position::new();
-        p.play_seq("12");
+        p.play_seq("123456");
         let r = s.solve(p);
         assert!(
             r.timed_out,
-            "1ms search of a 2-ply position should not finish"
+            "1ms search of a 6-ply position should not finish"
         );
+    }
+
+    #[test]
+    fn downloaded_book_replaces_embedded_book_and_clear_restores_it() {
+        let mut solver = Solver::with_tt_log(16);
+        let mut pos = Position::new();
+        pos.play_seq("1234");
+        let initial = solver.solve(pos);
+        assert!(initial.from_book);
+        assert_eq!(initial.nodes, 0);
+        assert_eq!(solver.book().depth(), 4);
+        assert_eq!(solver.book().len(), 719);
+
+        solver
+            .load_book(include_bytes!("../../books/8ply.c4book"))
+            .unwrap();
+        assert_eq!(solver.book().depth(), 8);
+        assert_eq!(solver.book().len(), 129_498);
+        assert_eq!(solver.solve(pos).score, initial.score);
+        assert!(solver.load_book(b"invalid").is_err());
+        assert_eq!(
+            solver.book().depth(),
+            8,
+            "bad downloads must not replace a valid book"
+        );
+
+        solver.clear_book();
+        assert_eq!(solver.book().depth(), 4);
+        assert_eq!(solver.book().len(), 719);
+        assert_eq!(solver.solve(pos).score, initial.score);
     }
 
     #[test]

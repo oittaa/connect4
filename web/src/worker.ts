@@ -4,7 +4,8 @@
 import { cacheLoad, cacheSave } from "./cache";
 
 export type WorkerReq =
-  | { id: number; type: "init"; bookUrl?: string; timeoutMs: number }
+  | { id: number; type: "init"; timeoutMs: number }
+  | { id: number; type: "fetchBook"; url: string }
   | { id: number; type: "loadBook"; bytes: ArrayBuffer }
   | { id: number; type: "clearBook" }
   | { id: number; type: "setTimeout"; ms: number }
@@ -68,7 +69,7 @@ type Engine = {
 };
 
 let engine: Engine | null = null;
-let bookEnabled = true;
+let bookFetch: AbortController | null = null;
 
 async function boot(): Promise<Engine> {
   const wasm = await import("./pkg/engine.js");
@@ -130,18 +131,9 @@ function readHit(
   };
 }
 
-async function maybeLoadDefaultBook(eng: Engine, url?: string): Promise<void> {
-  if (!url) return;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (!eng.loadBook(buf)) {
-      console.error("opening book failed to load", url, buf.length);
-    }
-  } catch (e) {
-    console.error("opening book fetch failed", url, e);
-  }
+function cancelBookFetch(): void {
+  bookFetch?.abort();
+  bookFetch = null;
 }
 
 self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
@@ -151,8 +143,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
     if (msg.type === "init") {
       if (!engine) engine = await boot();
       engine.setTimeoutMs(msg.timeoutMs);
-      await Promise.all([loadPersisted(engine), maybeLoadDefaultBook(engine, msg.bookUrl)]);
-      bookEnabled = true;
+      await loadPersisted(engine);
       reply({
         id: msg.id,
         type: "ready",
@@ -166,8 +157,29 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       return;
     }
     switch (msg.type) {
+      case "fetchBook": {
+        cancelBookFetch();
+        const request = new AbortController();
+        bookFetch = request;
+        try {
+          const res = await fetch(msg.url, { signal: request.signal });
+          if (!res.ok) throw new Error(`Opening book download failed (${res.status})`);
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          // Off/on toggles or another download can supersede this request.
+          if (bookFetch === request && !engine.loadBook(bytes)) {
+            throw new Error("Invalid opening book download");
+          }
+        } catch (e) {
+          if (!request.signal.aborted) throw e;
+        } finally {
+          if (bookFetch === request) bookFetch = null;
+        }
+        reply({ id: msg.id, type: "ready", bookLen: engine.bookLen(), bookDepth: engine.bookDepth() });
+        break;
+      }
       case "loadBook":
-        engine.loadBook(new Uint8Array(msg.bytes));
+        cancelBookFetch();
+        if (!engine.loadBook(new Uint8Array(msg.bytes))) throw new Error("Invalid opening book");
         reply({
           id: msg.id,
           type: "ready",
@@ -176,8 +188,8 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         });
         break;
       case "clearBook":
+        cancelBookFetch();
         engine.clearBook();
-        bookEnabled = false;
         reply({
           id: msg.id,
           type: "ready",
@@ -309,5 +321,3 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
     });
   }
 };
-
-void bookEnabled;
