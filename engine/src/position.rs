@@ -124,6 +124,15 @@ impl Position {
         self.key() != self.canonical_key()
     }
 
+    /// Return the left-right reflection of this position.
+    pub fn mirrored(&self) -> Self {
+        Self {
+            current: Self::mirror_bitboard(self.current),
+            mask: Self::mirror_bitboard(self.mask),
+            moves: self.moves,
+        }
+    }
+
     /// Pons base-3 key, already mirrored (`min` of L→R and R→L, last 0 dropped).
     /// Bit length ≈ (moves + 6) log2(3); fits in 32 bits through 14 ply.
     pub fn key3(&self) -> u64 {
@@ -249,7 +258,7 @@ impl Position {
     pub fn play_moves(&mut self, cols: &[u8]) -> bool {
         for &c in cols {
             let col = c as usize;
-            if col >= WIDTH || !self.can_play(col) {
+            if self.last_player_won() || col >= WIDTH || !self.can_play(col) {
                 return false;
             }
             self.play_col(col);

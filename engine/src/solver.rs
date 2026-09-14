@@ -1,6 +1,7 @@
 //! Strong Connect 4 solver: negamax, alpha-beta, null-window score search.
 
 use crate::book::Book;
+use crate::move_book::MoveBook;
 use crate::position::{column_mask, Position, AREA, WIDTH};
 use crate::proven::{best_of, orient_cols, pack_cols, ProvenTable};
 use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
@@ -23,6 +24,7 @@ pub struct SolveResult {
 pub struct Solver {
     tt: Table,
     book: Book,
+    move_book: Option<MoveBook>,
     proven: ProvenTable,
     nodes: u64,
     timed_out: bool,
@@ -31,6 +33,7 @@ pub struct Solver {
     max_nodes: u64,
     mirror: bool,
     tt_log: u32,
+    move_book_hit: bool,
     #[cfg(not(target_arch = "wasm32"))]
     start: Option<Instant>,
     #[cfg(target_arch = "wasm32")]
@@ -53,6 +56,7 @@ impl Solver {
         Self {
             tt: Table::new(log_size),
             book: Book::opening_4ply(),
+            move_book: None,
             proven: ProvenTable::new(),
             nodes: 0,
             timed_out: false,
@@ -61,6 +65,7 @@ impl Solver {
             max_nodes: 0,
             mirror: true,
             tt_log: log_size,
+            move_book_hit: false,
             #[cfg(not(target_arch = "wasm32"))]
             start: None,
             #[cfg(target_arch = "wasm32")]
@@ -78,6 +83,7 @@ impl Solver {
         self.nodes = 0;
         self.timed_out = false;
         self.check_counter = 0;
+        self.move_book_hit = false;
     }
 
     pub fn node_count(&self) -> u64 {
@@ -86,6 +92,10 @@ impl Solver {
 
     pub fn timed_out(&self) -> bool {
         self.timed_out
+    }
+
+    pub fn move_book_hit(&self) -> bool {
+        self.move_book_hit
     }
 
     pub fn set_mirror(&mut self, on: bool) {
@@ -130,6 +140,24 @@ impl Solver {
 
     pub fn book(&self) -> &Book {
         &self.book
+    }
+
+    pub fn load_move_book(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let book = MoveBook::load(bytes)?;
+        self.move_book = Some(book);
+        Ok(())
+    }
+
+    pub fn set_move_book(&mut self, book: MoveBook) {
+        self.move_book = Some(book);
+    }
+
+    pub fn clear_move_book(&mut self) {
+        self.move_book = None;
+    }
+
+    pub fn move_book(&self) -> Option<&MoveBook> {
+        self.move_book.as_ref()
     }
 
     pub fn proven(&self) -> &ProvenTable {
@@ -393,6 +421,45 @@ impl Solver {
             from_book,
         };
         Some((col, result, scores))
+    }
+
+    /// Select a move for gameplay. A move-book hit performs no score search and
+    /// does not add an entry to either the transposition or proven tables.
+    pub fn select_move(&mut self, pos: Position) -> Option<usize> {
+        self.reset_nodes();
+        self.begin_clock();
+        if pos.last_player_won() || pos.is_draw() {
+            return None;
+        }
+        if let Some(col) = self.move_book.as_ref().and_then(|book| book.get(&pos)) {
+            self.move_book_hit = true;
+            return Some(col);
+        }
+        self.best_move(pos).map(|(col, _, _)| col)
+    }
+
+    /// Verify a particular move against an independently known exact parent
+    /// score. This is used by move-book generation and validation.
+    pub fn certify_move(&mut self, pos: Position, col: usize, target: i32) -> bool {
+        self.reset_nodes();
+        self.begin_clock();
+        if pos.last_player_won() || pos.is_draw() || col >= WIDTH || !pos.can_play(col) {
+            return false;
+        }
+        if pos.is_winning_move(col) {
+            return target == (AREA as i32 + 1 - pos.moves() as i32) / 2;
+        }
+        let mut child = pos;
+        child.play_col(col);
+        if let Some(score) = self.exact_score(&child) {
+            return -score == target;
+        }
+        if child.can_win_next() {
+            let score = (AREA as i32 + 1 - child.moves() as i32) / 2;
+            return -score == target;
+        }
+        let score = self.negamax(child, -target, -target + 1);
+        !self.timed_out && score <= -target
     }
 
     fn negamax(&mut self, pos: Position, mut alpha: i32, mut beta: i32) -> i32 {
@@ -694,6 +761,7 @@ pub fn outcome_label(score: i32) -> &'static str {
 mod tests {
     use super::*;
     use crate::book::Book;
+    use crate::move_book::MoveBook;
     use crate::position::Position;
     use std::fs;
     use std::path::Path;
@@ -1125,5 +1193,60 @@ mod tests {
         b.merge_proven(&blob).unwrap();
         assert_eq!(b.proven().get(pos.canonical_key()), Some(r.score));
         assert_eq!(b.proven().get(other.canonical_key()), Some(r2.score));
+    }
+
+    #[test]
+    fn select_move_book_hit_resets_stats_and_does_not_pollute_proven_cache() {
+        let mut covered = Position::new();
+        covered.play_seq("12345");
+        let mut move_book = MoveBook::empty(10).unwrap();
+        move_book.insert(&covered, 3).unwrap();
+
+        let mut solver = Solver::with_tt_log(16);
+        solver.set_timeout_ms(1);
+        let mut expensive = Position::new();
+        expensive.play_seq("123456");
+        let previous = solver.solve(expensive);
+        assert!(previous.timed_out);
+        let proven_before = solver.proven().save();
+
+        solver.set_move_book(move_book);
+        assert_eq!(solver.select_move(covered), Some(3));
+        assert_eq!(solver.node_count(), 0);
+        assert!(!solver.timed_out());
+        assert!(solver.move_book_hit());
+        assert_eq!(solver.proven().save(), proven_before);
+    }
+
+    #[test]
+    fn select_move_miss_falls_back_and_terminal_resets_stats() {
+        let mut solver = Solver::with_tt_log(16);
+        solver.set_move_book(MoveBook::empty(10).unwrap());
+        let pos = Position::new();
+        assert_eq!(solver.select_move(pos), Some(3));
+        assert!(!solver.move_book_hit());
+
+        let mut terminal = Position::new();
+        terminal.play_seq("121314");
+        terminal.play_col(0);
+        assert_eq!(solver.select_move(terminal), None);
+        assert_eq!(solver.node_count(), 0);
+        assert!(!solver.timed_out());
+        assert!(!solver.move_book_hit());
+    }
+
+    #[test]
+    fn malformed_move_book_does_not_replace_active_book() {
+        let mut pos = Position::new();
+        pos.play_seq("1234");
+        let mut book = MoveBook::empty(10).unwrap();
+        book.insert(&pos, 2).unwrap();
+        let mut solver = Solver::with_tt_log(16);
+        solver.load_move_book(&book.save()).unwrap();
+        assert_eq!(solver.select_move(pos), Some(2));
+        assert!(solver.load_move_book(b"invalid").is_err());
+        assert_eq!(solver.select_move(pos), Some(2));
+        solver.clear_move_book();
+        assert!(solver.move_book().is_none());
     }
 }

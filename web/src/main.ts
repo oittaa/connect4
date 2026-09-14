@@ -283,7 +283,7 @@ async function requestMove(role: Role, generation: number): Promise<void> {
     return;
   }
   scores = r.scores;
-  reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache);
+  reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
   let col = r.col;
   if (role === "medium") col = mediumMove(r.scores) ?? r.col;
   if (!(col >= 0 && col < WIDTH)) col = easyMove(played()) ?? 255;
@@ -314,11 +314,21 @@ async function requestAnalyze(): Promise<void> {
   scheduleComputer();
 }
 
-function reportEngine(nodes: number, micros: number, timedOut: boolean, fromCache: boolean): void {
+function reportEngine(
+  nodes: number,
+  micros: number,
+  timedOut: boolean,
+  fromCache: boolean,
+  fromMoveBook = false,
+): void {
   const ms = micros / 1000;
   const nps = ms > 0 ? (nodes / ms) * 1000 : 0;
   if (fromCache) {
     engineLine.textContent = "cache hit";
+    return;
+  }
+  if (fromMoveBook) {
+    engineLine.textContent = "instant (move book)";
     return;
   }
   if (nodes === 0 && !timedOut) {
@@ -386,10 +396,10 @@ bookChk.addEventListener("change", () => {
   bookOn = bookChk.checked;
   if (!engineReady) return;
   if (bookOn) {
-    loadOpeningBook();
+    loadDownloadedBooks();
   } else {
     const generation = ++bookGeneration;
-    void send({ type: "clearBook" }).then((r) => {
+    void send({ type: "clearDownloadedBooks" }).then((r) => {
       if (generation === bookGeneration) reportBook(r);
     });
   }
@@ -445,19 +455,34 @@ document.addEventListener("keydown", (e) => {
 
 function reportBook(r: WorkerRes): void {
   if (r.type !== "ready" || analyzing || thinking || gameOver()) return;
-  engineLine.textContent = `Solver ready · opening book ${r.bookLen} positions (depth ${r.bookDepth})`;
+  const move =
+    r.moveBookPopulated > 0
+      ? ` · move book ${r.moveBookPopulated.toLocaleString()} moves (depth ${r.moveBookDepth})`
+      : "";
+  engineLine.textContent =
+    `Solver ready · score book ${r.bookLen.toLocaleString()} positions (depth ${r.bookDepth})` + move;
 }
 
-function loadOpeningBook(): void {
+function loadDownloadedBooks(): void {
   const generation = ++bookGeneration;
   void send({
-    type: "fetchBook",
+    type: "fetchScoreBook",
     url: new URL("books/opening.c4book", document.baseURI).href,
   }).then((r) => {
     if (generation !== bookGeneration || !bookOn) return;
     reportBook(r);
     if (r.type === "error" && !analyzing && !thinking && !gameOver()) {
-      engineLine.textContent = `${r.message}. Using embedded 4-ply book.`;
+      engineLine.textContent = `${r.message}. Using embedded 4-ply score book.`;
+    }
+  });
+  void send({
+    type: "fetchMoveBook",
+    url: new URL("books/10ply.c4move", document.baseURI).href,
+  }).then((r) => {
+    if (generation !== bookGeneration || !bookOn) return;
+    reportBook(r);
+    if (r.type === "error" && !analyzing && !thinking && !gameOver()) {
+      engineLine.textContent = `${r.message}. Computer moves will use score-book/search fallback.`;
     }
   });
 }
@@ -470,7 +495,7 @@ function onReady(r: WorkerRes): void {
   engineReady = true;
   reportBook(r);
   afterChange();
-  if (bookOn) loadOpeningBook();
+  if (bookOn) loadDownloadedBooks();
 }
 
 const fromUrl = readMovesFromLocation();
