@@ -32,6 +32,7 @@ pub struct Solver {
     timeout_ms: u32,
     max_nodes: u64,
     mirror: bool,
+    #[cfg(not(target_arch = "wasm32"))]
     tt_log: u32,
     move_book_hit: bool,
     #[cfg(not(target_arch = "wasm32"))]
@@ -64,6 +65,7 @@ impl Solver {
             timeout_ms: 0,
             max_nodes: 0,
             mirror: true,
+            #[cfg(not(target_arch = "wasm32"))]
             tt_log: log_size,
             move_book_hit: false,
             #[cfg(not(target_arch = "wasm32"))]
@@ -568,6 +570,8 @@ impl Solver {
         threads: usize,
         mut on_change: F,
     ) {
+        #[cfg(target_arch = "wasm32")]
+        let _ = threads;
         #[cfg(not(target_arch = "wasm32"))]
         if threads > 1 {
             self.fill_book_parallel(pos, max_depth, book, threads, on_change);
@@ -577,6 +581,7 @@ impl Solver {
         self.fill_book_rec(pos, max_depth, book, &mut expanded, &mut on_change);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn collect_missing(
         pos: Position,
         max_depth: u8,

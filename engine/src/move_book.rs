@@ -196,6 +196,7 @@ impl MoveBook {
             || read_three_bits(&section.data, location.reflected_color_slot) != UNKNOWN_MOVE
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn index_slots(&self, pos: &Position) -> Option<(u8, u32, Option<u32>)> {
         let location = self.location(pos)?;
         Some((
