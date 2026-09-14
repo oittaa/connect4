@@ -3,12 +3,14 @@
 import {
   INVALID,
   chooseAfterEngine,
+  completeMoveScores,
   forcedWinOrBlock,
   isDraw,
   lastMoveWin,
   mediumMove,
   pickMedium,
   planComputerTurn,
+  type CompleteColumnScores,
 } from "./game.ts";
 
 function assert(cond: boolean, msg: string): void {
@@ -24,7 +26,7 @@ function seq(values: number[]): () => number {
   return () => values[Math.min(i++, values.length - 1)] ?? 0;
 }
 
-const emptyScores = [-2, -1, 0, 1, 0, -1, -2];
+const emptyScores: CompleteColumnScores = [-2, -1, 0, 1, 0, -1, -2];
 assert(mediumMove(emptyScores, seq([0.99, 0])) === 3, "keep unique best");
 assert(mediumMove(emptyScores, seq([0, 0])) === 2, "second-best first tie (column 3)");
 assert(mediumMove(emptyScores, seq([0, 0.99])) === 4, "second-best last tie (column 5)");
@@ -36,7 +38,7 @@ assert(mediumMove(tiedBest, seq([0.99, 0.99])) === 2, "best-tier last tie");
 
 const winSeq = [0, 1, 0, 2, 0, 3];
 assert(forcedWinOrBlock(winSeq) === 0, "forced win");
-assert(pickMedium(winSeq, 6, [], () => 0) === 0, "take the mate");
+assert(pickMedium(winSeq, 6, null, () => 0) === 0, "take the mate");
 
 const blockSeq = [1, 0, 2, 0, 6, 0];
 assert(forcedWinOrBlock(blockSeq) === 0, "forced block");
@@ -46,19 +48,19 @@ assert(pickMedium([], 3, emptyScores, seq([0.99, 0])) === 3, "score-book best");
 assert(pickMedium([], 3, emptyScores, seq([0, 0])) === 2, "score-book second first tie");
 assert(pickMedium([], 3, emptyScores, seq([0, 0.99])) === 4, "score-book second last tie");
 
-const leak = pickMedium([0, 1], 3, [], () => 0.5);
+const leak = pickMedium([0, 1], 3, null, () => 0.5);
 assert(leak === 3, `keep engine column, got ${leak}`);
-const leaked = pickMedium([0, 1], 3, [], () => 0.9);
+const leaked = pickMedium([0, 1], 3, null, () => 0.9);
 assert(leaked !== null && leaked !== 3, `leak away from engine, got ${leaked}`);
 assert(
-  pickMedium([0, 1], 3, [INVALID, INVALID, INVALID, 1, INVALID, INVALID, INVALID], () => 0) === 3,
+  mediumMove([INVALID, INVALID, INVALID, 1, INVALID, INVALID, INVALID], () => 0) === 3,
   "one scored column",
 );
 
 // Playing column 3 fills the support for Yellow's row-1 three-in-a-row.
 const hangSeq = [0, 0, 6, 1, 2, 1, 6, 2];
 assert(forcedWinOrBlock(hangSeq) === null, "hang is not an immediate threat");
-assert(pickMedium(hangSeq, 3, [], () => 0.5) !== 3, "fallback avoids hanging a win");
+assert(pickMedium(hangSeq, 3, null, () => 0.5) !== 3, "fallback avoids hanging a win");
 
 const winSeqPlayed = [...winSeq, 0];
 assert(lastMoveWin(winSeqPlayed) !== null, "mate is terminal");
@@ -79,8 +81,8 @@ same(planComputerTurn("perfect", winSeq, () => 0), { type: "engine" }, "Perfect 
 assert(chooseAfterEngine("perfect", [], 3, emptyScores, () => 0) === 3, "Perfect keeps the engine column");
 assert(chooseAfterEngine("perfect", [], 2, emptyScores, seq([0.99, 0])) === 2, "Perfect does not use Medium ranks");
 assert(chooseAfterEngine("medium", [], 2, emptyScores, seq([0.99, 0])) === 3, "Medium can ignore the engine column");
-assert(chooseAfterEngine("perfect", [], 3, [], () => 0) === 3, "Perfect ignores missing scores");
-assert(chooseAfterEngine("perfect", [], 255, [], seq([0])) === 3, "invalid Perfect column falls back to Easy");
+assert(chooseAfterEngine("perfect", [], 3, null, () => 0) === 3, "Perfect ignores missing scores");
+assert(chooseAfterEngine("perfect", [], 255, null, seq([0])) === 3, "invalid Perfect column falls back to Easy");
 assert(
   chooseAfterEngine("medium", [], 3, emptyScores, seq([0.99, 0])) === 3,
   "Medium score-book best after engine",
@@ -90,10 +92,14 @@ assert(
   "Medium second-best first tie after engine",
 );
 assert(
-  chooseAfterEngine("medium", hangSeq, 3, [], () => 0.5) !== 3,
+  chooseAfterEngine("medium", hangSeq, 3, null, () => 0.5) !== 3,
   "Medium fallback still avoids hanging a win",
 );
-assert(chooseAfterEngine("medium", winSeq, 6, [], () => 0) === 0, "chooser still takes the mate");
+assert(chooseAfterEngine("medium", winSeq, 6, null, () => 0) === 0, "chooser still takes the mate");
+assert(
+  chooseAfterEngine("medium", [0, 1], 3, null, () => 0.5) === 3,
+  "null moveScores uses the engine-column fallback",
+);
 
 // Full board from testdata/end_easy (41 ply, one safe drop left).
 const draw = "71255763773133525731261364622167124446454".split("").map((ch) => Number(ch) - 1);
@@ -102,5 +108,33 @@ assert(isDraw(draw), "constructed full-board draw");
 assert(planComputerTurn("easy", draw, () => 0) === null, "Easy skips a draw");
 assert(planComputerTurn("medium", draw, () => 0) === null, "Medium skips a draw");
 assert(planComputerTurn("perfect", draw, () => 0) === null, "Perfect skips a draw");
+
+same(completeMoveScores(emptyScores, []), emptyScores, "empty-board book scores");
+assert(completeMoveScores([], []) === null, "empty array is not complete");
+assert(completeMoveScores([-2, -1, 0, 1, 0, -1], []) === null, "short array is not complete");
+assert(
+  completeMoveScores([-2, -1, 0, 1, 0, -1, -2, 99], []) === null,
+  "extra entries are not complete",
+);
+assert(
+  completeMoveScores([-2, -1, 0, 1, 0, -1, INVALID], []) === null,
+  "missing child is not complete",
+);
+assert(
+  completeMoveScores(Array(7).fill(INVALID), []) === null,
+  "seven sentinels are not complete",
+);
+
+const cached: CompleteColumnScores = [-1, 0, 1, 2, 1, 0, -1];
+same(completeMoveScores(cached, []), cached, "complete cached columns");
+assert(chooseAfterEngine("medium", [], 0, cached, seq([0.99, 0])) === 3, "chooser uses cached columns");
+
+const fullCol = [0, 0, 0, 0, 0, 0];
+const fullColScores: CompleteColumnScores = [INVALID, -1, 0, 1, 0, -1, -2];
+same(completeMoveScores(fullColScores, fullCol), fullColScores, "full-column sentinel stays complete");
+assert(
+  completeMoveScores([INVALID, INVALID, 0, 1, 0, -1, -2], fullCol) === null,
+  "legal missing child next to a full column",
+);
 
 console.log("medium checks ok");

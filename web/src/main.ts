@@ -17,12 +17,12 @@ import {
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
-import type { WorkerReq, WorkerRes } from "./worker";
+import type { WorkerReq, WorkerRes } from "./engineProtocol";
 
 const history: number[] = [];
 let cursor = 0;
 let roles: [Role, Role] = ["human", "human"];
-let scores: number[] | null = null;
+let analysisScores: number[] | null = null;
 let analyzing = false;
 let analysisGeneration = 0;
 let thinking = false;
@@ -110,8 +110,8 @@ function renderBoard(animateLast: boolean): void {
   const g = playMoves(m);
   const win = lastMoveWin(m);
   const winSet = new Set((win ?? []).map(([r, c]) => `${r},${c}`));
-  const proven = !!(scores && analysisComplete(scores, g.height));
-  const best = proven && analyzeChk.checked && scores ? bestCols(scores) : [];
+  const proven = !!(analysisScores && analysisComplete(analysisScores, g.height));
+  const best = proven && analyzeChk.checked && analysisScores ? bestCols(analysisScores) : [];
 
   if (!boardEl.childElementCount) {
     for (let c = 0; c < WIDTH; c++) {
@@ -183,10 +183,10 @@ function renderBoard(animateLast: boolean): void {
       span.textContent = "…";
       scoresEl.appendChild(span);
     }
-  } else if (!over && analyzeChk.checked && scores) {
+  } else if (!over && analyzeChk.checked && analysisScores) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
-    scores.forEach((s, i) => {
+    analysisScores.forEach((s, i) => {
       const span = document.createElement("span");
       span.textContent = formatScore(s);
       if (best.includes(i)) span.classList.add("best");
@@ -202,7 +202,7 @@ function renderBoard(animateLast: boolean): void {
 
   statusEl.textContent = statusText(
     m,
-    analyzeChk.checked && !analyzing ? scores : null,
+    analyzeChk.checked && !analyzing ? analysisScores : null,
     thinking,
   );
   if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
@@ -227,7 +227,7 @@ function applyMove(col: number): void {
   history.push(col);
   lastDropIndex = cursor;
   cursor++;
-  scores = null;
+  analysisScores = null;
   analysisGeneration++;
   analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
@@ -299,9 +299,8 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     renderBoard(false);
     return;
   }
-  scores = r.scores;
   reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
-  const col = chooseAfterEngine(turn.role, turn.moves, r.col, r.scores);
+  const col = chooseAfterEngine(turn.role, turn.moves, r.col, r.moveScores);
   if (col !== null && !gameOver()) applyMove(col);
   else renderBoard(false);
 }
@@ -320,7 +319,7 @@ async function requestAnalyze(): Promise<void> {
   if (token !== analysisGeneration || !analyzeChk.checked || gameOver()) return;
   analyzing = false;
   if (r.type === "analyzed") {
-    scores = r.scores;
+    analysisScores = r.scores;
     reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache);
   } else {
     engineLine.textContent = r.type === "error" ? r.message : "Analysis unavailable.";
@@ -362,7 +361,7 @@ backBtn.addEventListener("click", () => {
   if (hasComputer()) paused = true;
   cancelComputerMove();
   cursor--;
-  scores = null;
+  analysisScores = null;
   analysisGeneration++;
   analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
@@ -375,7 +374,7 @@ fwdBtn.addEventListener("click", () => {
   cancelComputerMove();
   lastDropIndex = cursor;
   cursor++;
-  scores = null;
+  analysisScores = null;
   analysisGeneration++;
   analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
@@ -387,7 +386,7 @@ newBtn.addEventListener("click", () => {
   cancelComputerMove();
   history.length = 0;
   cursor = 0;
-  scores = null;
+  analysisScores = null;
   analysisGeneration++;
   analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation([]);
