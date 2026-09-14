@@ -23,7 +23,7 @@ import {
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
-import { createEngineClient } from "./engineClient";
+import { createEngineClient, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
 
 const history: number[] = [];
@@ -34,6 +34,7 @@ let analyzing = false;
 let analysisGeneration = 0;
 let thinking = false;
 let engineReady = false;
+let engineFailed = false;
 let bookOn = true;
 let bookGeneration = 0;
 let bookState: Extract<WorkerRes, { type: "ready" }> | null = null;
@@ -61,6 +62,11 @@ const copyBtn = document.getElementById("copy-link") as HTMLButtonElement;
 const copyLabel = document.getElementById("copy-label")!;
 const gameStage = document.querySelector<HTMLElement>(".game-stage")!;
 const moveCount = document.getElementById("move-count")!;
+const solverAlert = document.getElementById("solver-alert")!;
+const solverAlertText = document.getElementById("solver-alert-text")!;
+const solverReload = document.getElementById("solver-reload") as HTMLButtonElement;
+
+const SOLVER_FAILURE_TEXT = "The solver failed. Reload to try again.";
 
 function syncDebugControls(): void {
   openingBookOption.hidden = !isDebugMode();
@@ -73,8 +79,24 @@ window.addEventListener("hashchange", syncDebugControls);
 const mobile = matchMedia("(max-width: 700px), (pointer: coarse)").matches;
 const timeoutMs = mobile ? 6_000 : 12_000;
 
+function declareSolverFailed(detail: string): void {
+  if (engineFailed) return;
+  engineFailed = true;
+  engineReady = false;
+  analyzing = false;
+  analysis = null;
+  analysisGeneration++;
+  thinking = false;
+  solverAlertText.textContent = SOLVER_FAILURE_TEXT;
+  solverAlert.hidden = false;
+  engineLine.textContent = detail || "Solver failed";
+  renderBoard(false);
+}
+
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-const { request: send } = createEngineClient(worker);
+const engineClient = createEngineClient(worker, { onFailure: declareSolverFailed });
+const send = (msg: EngineRequest) => engineClient.request(msg);
+solverReload.addEventListener("click", () => location.reload());
 
 function played(): number[] {
   return history.slice(0, cursor);
@@ -282,7 +304,7 @@ function scheduleComputer(): void {
   const plan = planComputerTurn(role, moves);
   if (plan === null) return;
   if (plan.type === "engine" && !engineReady) {
-    engineLine.textContent = "Waiting for solver…";
+    if (!engineFailed) engineLine.textContent = "Waiting for solver…";
     return;
   }
   if (plan.type === "engine") thinking = true;
@@ -302,7 +324,9 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (computerTurnStale(turn.generation)) return;
   thinking = false;
   if (r.type !== "moved") {
-    engineLine.textContent = r.type === "error" ? r.message : "solver error";
+    if (!engineFailed) {
+      engineLine.textContent = r.type === "error" ? r.message : "solver error";
+    }
     renderBoard(false);
     return;
   }
@@ -388,14 +412,16 @@ newBtn.addEventListener("click", () => {
 analyzeChk.addEventListener("change", () => {
   if (analyzeChk.checked) applyHintComputer("hintsOn", false);
   else {
-    engineLine.textContent = engineReady ? "Solver ready." : "Getting the solver ready…";
+    if (!engineFailed) {
+      engineLine.textContent = engineReady ? "Solver ready." : "Getting the solver ready…";
+    }
     applyHintComputer("hintsOff", false);
   }
 });
 
 bookChk.addEventListener("change", () => {
   bookOn = bookChk.checked;
-  if (!engineReady) return;
+  if (!engineReady || engineFailed) return;
   if (bookOn) {
     loadDownloadedBooks();
   } else {
@@ -476,7 +502,7 @@ function loadDownloadedBooks(): void {
     ["move", "fetchMoveBook", "opening.c4move"],
   ] as const) {
     void send({ type, url: new URL(`books/${file}`, document.baseURI).href }).then((r) => {
-      if (generation !== bookGeneration || !bookOn) return;
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
       bookDownloads[book] = r.type === "error" ? r.message : "";
       reportBook(r);
     });
@@ -485,9 +511,11 @@ function loadDownloadedBooks(): void {
 
 function onReady(r: WorkerRes): void {
   if (r.type !== "ready") {
-    engineLine.textContent = r.type === "error" ? `Solver failed: ${r.message}` : "Solver failed";
+    engineClient.fail();
+    declareSolverFailed(r.type === "error" ? r.message : "Solver failed");
     return;
   }
+  if (engineFailed) return;
   engineReady = true;
   if (!gameOver()) engineLine.textContent = "Solver ready.";
   reportBook(r);
