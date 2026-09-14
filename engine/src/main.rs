@@ -20,11 +20,8 @@ Usage:
                                   run a Pons-style test file (seq score)
   c4solver empty [--book FILE] [--no-mirror]
   c4solver gen-book --depth N --out FILE [--from FILE] [--tt-bits N] [--threads N]
-  c4solver gen-move-book --depth N --scores FILE --out FILE
-                         [--threads N] [--tt-bits N] [--pilot N]
-                         [--limit N] [--seconds N]
+  c4solver gen-move-book --depth 10 --scores FILE --out FILE
   c4solver validate-move-book --scores FILE --book FILE
-                              [--sample N] [--tt-bits N]
 
 If --out already exists, it is loaded and generation continues from it
 (same as --from FILE). Already-scored positions are not re-solved.
@@ -95,9 +92,6 @@ fn positional_seq(args: &[String]) -> &str {
             || a == "--limit"
             || a == "--threads"
             || a == "--scores"
-            || a == "--pilot"
-            || a == "--seconds"
-            || a == "--sample"
         {
             skip_val = true;
             continue;
@@ -347,57 +341,43 @@ fn main() {
                 .unwrap_or_else(|_| usage());
             let scores = arg_value(&args, "--scores").unwrap_or("books/10ply.c4book");
             let out = arg_value(&args, "--out").unwrap_or("books/10ply.c4move");
-            let pilot_positions = optional_usize(&args, "--pilot");
-            let position_limit = optional_usize(&args, "--limit");
-            let time_limit = optional_u64(&args, "--seconds").map(std::time::Duration::from_secs);
             let options = GenerateOptions {
                 depth,
                 scores: scores.into(),
                 out: out.into(),
-                threads: thread_count(&args),
-                tt_bits: tt_bits(&args),
-                pilot_positions,
-                position_limit,
-                time_limit,
             };
             let report = generate(&options).unwrap_or_else(|error| {
                 eprintln!("move-book generation failed: {error}");
                 process::exit(1);
             });
             println!(
-                "status={} canonical={} frontier={} queued={} completed={} populated={}/{} nodes={} elapsed={:.3}s",
-                if report.complete { "complete" } else { "partial" },
+                "status={} canonical={} ply10_fallback_positions={} covered_ply={} populated={}/{} search_nodes=0 elapsed={:.3}s",
+                if report.complete { "complete-lookup-only" } else { "invalid" },
                 report.canonical_positions,
                 report.frontier_positions,
-                report.queued_frontier,
-                report.completed_frontier,
+                report.covered_ply,
                 report.populated_slots,
                 report.total_slots,
-                report.nodes,
                 report.elapsed.as_secs_f64()
             );
-            println!("checkpoint={}", report.checkpoint.display());
+            println!("output={}", report.output.display());
             println!("progress={}", report.progress.display());
-            println!("certifications={}", report.certifications.display());
         }
         "validate-move-book" => {
             let scores = arg_value(&args, "--scores").unwrap_or("books/10ply.c4book");
             let book = arg_value(&args, "--book").unwrap_or("books/10ply.c4move");
-            let sample = optional_usize(&args, "--sample").unwrap_or(100);
-            let report = validate(Path::new(scores), Path::new(book), sample, tt_bits(&args))
-                .unwrap_or_else(|error| {
-                    eprintln!("move-book validation failed: {error}");
-                    process::exit(1);
-                });
+            let report = validate(Path::new(scores), Path::new(book)).unwrap_or_else(|error| {
+                eprintln!("move-book validation failed: {error}");
+                process::exit(1);
+            });
             println!(
-                "valid canonical={} frontier={} indexed={} populated={} score_checks={} frontier_checks={} frontier_nodes={} elapsed={:.3}s",
+                "valid canonical={} ply10_fallback_positions={} indexed={} populated={} score_checks={} ply10_unknown_slots={} search_nodes=0 elapsed={:.3}s",
                 report.canonical_positions,
                 report.frontier_positions,
                 report.indexed_positions,
                 report.populated_slots,
                 report.score_checks,
-                report.frontier_checks,
-                report.frontier_nodes,
+                report.uncovered_frontier_slots,
                 report.elapsed.as_secs_f64()
             );
         }
@@ -409,14 +389,6 @@ fn arg_value<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     args.windows(2)
         .find(|window| window[0] == name)
         .map(|window| window[1].as_str())
-}
-
-fn optional_usize(args: &[String], name: &str) -> Option<usize> {
-    arg_value(args, name).map(|value| value.parse().unwrap_or_else(|_| usage()))
-}
-
-fn optional_u64(args: &[String], name: &str) -> Option<u64> {
-    arg_value(args, name).map(|value| value.parse().unwrap_or_else(|_| usage()))
 }
 
 fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
