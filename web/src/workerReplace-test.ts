@@ -164,6 +164,8 @@ function harness(replan: "session" | "none" = "session") {
       order.push("fail");
     },
     isEngineFailed: () => false,
+    bookOn: () => true,
+    bookGeneration: () => 1,
   };
   box.ctrl = createWorkerReplace(host);
   return { mocks, session, order, readySnapshots, ctrl: box.ctrl };
@@ -275,6 +277,8 @@ const afterBack = inflight.slice(0, -1);
     },
     onInitFailure() {},
     isEngineFailed: () => false,
+    bookOn: () => books.bookOn,
+    bookGeneration: () => books.generation,
   });
   void ctrl.send({ type: "analyze", moves: inflight.slice() });
   await microtasks();
@@ -325,6 +329,8 @@ const afterBack = inflight.slice(0, -1);
     },
     onInitFailure() {},
     isEngineFailed: () => false,
+    bookOn: () => books.bookOn,
+    bookGeneration: () => books.generation,
   });
   void ctrl.send({ type: "analyze", moves: inflight.slice() });
   await microtasks();
@@ -345,6 +351,60 @@ const afterBack = inflight.slice(0, -1);
     "Off then On during init does not reload discarded retained bytes",
   );
   assert(downloadAfterReady, "On without retained bytes restarts downloads when replacement completes");
+}
+
+{
+  const mocks = mockWorkers();
+  const books = {
+    bookOn: true,
+    generation: 1,
+    retainedScoreBook: null as ArrayBuffer | null,
+    retainedMoveBook: null as ArrayBuffer | null,
+  };
+  const bookHost: BookRestoreHost = {
+    bookOn: () => books.bookOn,
+    generation: () => books.generation,
+    retainedScore: () => books.retainedScoreBook,
+    retainedMove: () => books.retainedMoveBook,
+    report() {},
+    loaded() {},
+  };
+  const ctrl = createWorkerReplace({
+    spawn: mocks.spawn,
+    initTimeoutMs: () => 12_000,
+    onReplaceStart() {},
+    restoreBooks: (client, readyMsg) => restoreRetainedBooks(client, readyMsg, bookHost),
+    afterReady() {},
+    onInitFailure() {},
+    isEngineFailed: () => false,
+    bookOn: () => books.bookOn,
+    bookGeneration: () => books.generation,
+  });
+  void ctrl.send({ type: "analyze", moves: inflight.slice() });
+  await microtasks();
+  const back = ctrl.send({ type: "analyze", moves: afterBack });
+  await microtasks();
+  assert(mocks.workers[1].pendingInit !== null, "replacement init is pending");
+  const delayed = ctrl.send({ type: "loadScoreBook", bytes: new ArrayBuffer(8) });
+  await microtasks();
+  same(
+    mocks.workers[1].posted.map((m) => m.type),
+    ["init"],
+    "finished download waits for replacement before loadScoreBook",
+  );
+
+  books.bookOn = false;
+  books.generation++;
+  mocks.workers[1].releaseInit();
+  const delayedReply = await delayed;
+  await back;
+  await microtasks(10);
+  same(
+    mocks.workers[1].posted.map((m) => m.type),
+    ["init", "clearDownloadedBooks"],
+    "Off before init completes rejects the delayed loadScoreBook",
+  );
+  assert(delayedReply.type === "error" && delayedReply.message === WORKER_REPLACED, "stale book load is not posted");
 }
 
 console.log("worker replace checks ok");

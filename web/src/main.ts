@@ -149,6 +149,8 @@ const workerSession = createWorkerReplace({
   afterReady: onReplacementReady,
   onInitFailure: declareSolverFailed,
   isEngineFailed: () => engineFailed,
+  bookOn: () => bookOn,
+  bookGeneration: () => bookGeneration,
 });
 
 function send(msg: EngineRequest): Promise<WorkerRes> {

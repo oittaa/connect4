@@ -19,10 +19,16 @@ export type WorkerReplaceHost = {
   afterReady(): void;
   onInitFailure(detail: string): void;
   isEngineFailed(): boolean;
+  bookOn(): boolean;
+  bookGeneration(): number;
 };
 
 function replacedResult(): WorkerRes {
   return { id: 0, type: "error", message: WORKER_REPLACED };
+}
+
+function isBookLoad(type: EngineRequest["type"]): boolean {
+  return type === "loadScoreBook" || type === "loadMoveBook";
 }
 
 /**
@@ -64,7 +70,11 @@ export function createWorkerReplace(host: WorkerReplaceHost) {
 
   async function send(msg: EngineRequest): Promise<WorkerRes> {
     if (!isBlockingCompute(msg.type)) {
+      const bookGen = isBookLoad(msg.type) ? host.bookGeneration() : null;
       if (replacing) await replacing;
+      if (bookGen !== null && (host.bookGeneration() !== bookGen || !host.bookOn())) {
+        return replacedResult();
+      }
       return current.client.request(msg);
     }
 
