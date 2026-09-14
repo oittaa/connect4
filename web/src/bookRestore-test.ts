@@ -5,6 +5,7 @@ import type { WorkerRes } from "./engineProtocol.ts";
 import {
   restoreRetainedBooks,
   shouldDownloadBooks,
+  shouldStartBookDownload,
   type BookRestoreHost,
 } from "./bookRestore.ts";
 
@@ -157,6 +158,43 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
   await done;
   assert(session.applied.some((r) => r.type === "ready" && r.moveBookPopulated === move9.moveBookPopulated), "move book applied");
   assert(!shouldDownloadBooks(session), "retained bytes still present, no refetch");
+}
+
+{
+  const timedOut = {
+    bookOn: true,
+    retainedScoreBook: new ArrayBuffer(8),
+    retainedMoveBook: null as ArrayBuffer | null,
+    scoreAttempted: true,
+    moveAttempted: true,
+    scoreInFlight: false,
+    moveInFlight: false,
+  };
+  assert(shouldStartBookDownload("score", timedOut) === false, "successful score book is not re-fetched");
+  assert(shouldStartBookDownload("move", timedOut) === false, "timed-out move book is not auto-retried");
+  assert(!shouldDownloadBooks(timedOut), "afterReady does not restart a timed-out attempt");
+
+  const inFlight = {
+    bookOn: true,
+    retainedScoreBook: null as ArrayBuffer | null,
+    retainedMoveBook: null as ArrayBuffer | null,
+    scoreAttempted: true,
+    moveAttempted: true,
+    scoreInFlight: true,
+    moveInFlight: true,
+  };
+  assert(!shouldDownloadBooks(inFlight), "replacement does not start a second fetch while one is in flight");
+
+  const offThenOn = {
+    bookOn: true,
+    retainedScoreBook: null as ArrayBuffer | null,
+    retainedMoveBook: null as ArrayBuffer | null,
+    scoreAttempted: false,
+    moveAttempted: false,
+    scoreInFlight: false,
+    moveInFlight: false,
+  };
+  assert(shouldDownloadBooks(offThenOn), "Off then On retries both books");
 }
 
 console.log("book restore checks ok");
