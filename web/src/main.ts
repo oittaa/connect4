@@ -5,6 +5,7 @@ import {
   analysisComplete,
   bestCols,
   easyMove,
+  forcedWinOrBlock,
   formatScore,
   isDraw,
   lastMoveWin,
@@ -260,6 +261,16 @@ function scheduleComputer(): void {
     cpuTimer = window.setTimeout(() => {
       if (generation !== cpuGeneration || paused) return;
       const col = easyMove(played());
+      if (col !== null) applyMove(col);
+    }, delayMs);
+    return;
+  }
+  // Wins and blocks do not need the solver. Waiting for bestMove can take
+  // seconds past book coverage, including on a mandatory block.
+  if (role === "medium" && forcedWinOrBlock(played()) !== null) {
+    cpuTimer = window.setTimeout(() => {
+      if (generation !== cpuGeneration || paused) return;
+      const col = forcedWinOrBlock(played());
       if (col !== null) applyMove(col);
     }, delayMs);
     return;
