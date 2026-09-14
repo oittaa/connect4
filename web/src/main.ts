@@ -4,15 +4,16 @@ import {
   WIDTH,
   analysisComplete,
   bestCols,
-  easyMove,
-  forcedWinOrBlock,
+  chooseAfterEngine,
   formatScore,
   isDraw,
   lastMoveWin,
-  pickMedium,
+  planComputerTurn,
   playMoves,
   statusText,
   toMove,
+  type ComputerRole,
+  type ComputerTurnPlan,
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
@@ -243,11 +244,22 @@ function afterChange(): void {
 let cpuTimer = 0;
 let cpuGeneration = 0;
 
+type PendingComputerTurn = {
+  generation: number;
+  role: ComputerRole;
+  moves: number[];
+  plan: ComputerTurnPlan;
+};
+
 function cancelComputerMove(): void {
   window.clearTimeout(cpuTimer);
   // A solver reply can arrive after pausing or navigating back to the same turn.
   cpuGeneration++;
   thinking = false;
+}
+
+function computerTurnStale(generation: number): boolean {
+  return generation !== cpuGeneration || paused;
 }
 
 function scheduleComputer(): void {
@@ -256,40 +268,31 @@ function scheduleComputer(): void {
   if (gameOver() || paused) return;
   const role = currentRole();
   if (role === "human") return;
-  const generation = cpuGeneration;
-  if (role === "easy") {
-    cpuTimer = window.setTimeout(() => {
-      if (generation !== cpuGeneration || paused) return;
-      const col = easyMove(played());
-      if (col !== null) applyMove(col);
-    }, delayMs);
-    return;
-  }
-  // Wins and blocks do not need the solver. Waiting for bestMove can take
-  // seconds past book coverage, including on a mandatory block.
-  if (role === "medium" && forcedWinOrBlock(played()) !== null) {
-    cpuTimer = window.setTimeout(() => {
-      if (generation !== cpuGeneration || paused) return;
-      const col = forcedWinOrBlock(played());
-      if (col !== null) applyMove(col);
-    }, delayMs);
-    return;
-  }
-  if (!engineReady) {
+  const moves = played();
+  const plan = planComputerTurn(role, moves);
+  if (plan === null) return;
+  if (plan.type === "engine" && !engineReady) {
     engineLine.textContent = "Waiting for solver…";
     return;
   }
-  thinking = true;
-  renderBoard(false);
+  if (plan.type === "engine") {
+    thinking = true;
+    renderBoard(false);
+  }
+  const turn: PendingComputerTurn = { generation: cpuGeneration, role, moves, plan };
   cpuTimer = window.setTimeout(() => {
-    void requestMove(role, generation);
+    void executeComputerTurn(turn);
   }, delayMs);
 }
 
-async function requestMove(role: Role, generation: number): Promise<void> {
-  if (generation !== cpuGeneration || paused) return;
-  const r = await send({ type: "bestMove", moves: played() });
-  if (generation !== cpuGeneration || paused) return;
+async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
+  if (computerTurnStale(turn.generation)) return;
+  if (turn.plan.type === "local") {
+    if (!gameOver()) applyMove(turn.plan.col);
+    return;
+  }
+  const r = await send({ type: "bestMove", moves: turn.moves });
+  if (computerTurnStale(turn.generation)) return;
   thinking = false;
   if (r.type !== "moved") {
     engineLine.textContent = r.type === "error" ? r.message : "solver error";
@@ -298,10 +301,8 @@ async function requestMove(role: Role, generation: number): Promise<void> {
   }
   scores = r.scores;
   reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
-  let col = r.col;
-  if (role === "medium") col = pickMedium(played(), r.col, r.scores) ?? r.col;
-  if (!(col >= 0 && col < WIDTH)) col = easyMove(played()) ?? 255;
-  if (col >= 0 && col < WIDTH && !gameOver()) applyMove(col);
+  const col = chooseAfterEngine(turn.role, turn.moves, r.col, r.scores);
+  if (col !== null && !gameOver()) applyMove(col);
   else renderBoard(false);
 }
 

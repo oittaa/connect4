@@ -1,9 +1,22 @@
-// Deterministic Medium checks. Run: npm test
+// Deterministic Medium and computer-turn policy checks. Run: npm test
 
-import { INVALID, forcedWinOrBlock, mediumMove, pickMedium } from "./game.ts";
+import {
+  INVALID,
+  chooseAfterEngine,
+  forcedWinOrBlock,
+  isDraw,
+  lastMoveWin,
+  mediumMove,
+  pickMedium,
+  planComputerTurn,
+} from "./game.ts";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
+}
+
+function same(got: unknown, expected: unknown, msg: string): void {
+  assert(JSON.stringify(got) === JSON.stringify(expected), `${msg}: got ${JSON.stringify(got)}`);
 }
 
 function seq(values: number[]): () => number {
@@ -46,5 +59,48 @@ assert(
 const hangSeq = [0, 0, 6, 1, 2, 1, 6, 2];
 assert(forcedWinOrBlock(hangSeq) === null, "hang is not an immediate threat");
 assert(pickMedium(hangSeq, 3, [], () => 0.5) !== 3, "fallback avoids hanging a win");
+
+const winSeqPlayed = [...winSeq, 0];
+assert(lastMoveWin(winSeqPlayed) !== null, "mate is terminal");
+assert(planComputerTurn("easy", winSeqPlayed, () => 0) === null, "Easy skips a finished game");
+assert(planComputerTurn("medium", winSeqPlayed, () => 0) === null, "Medium skips a finished game");
+assert(planComputerTurn("perfect", winSeqPlayed, () => 0) === null, "Perfect skips a finished game");
+
+same(planComputerTurn("easy", [], seq([0])), { type: "local", col: 3 }, "Easy is always local");
+same(planComputerTurn("easy", winSeq, () => 0), { type: "local", col: 0 }, "Easy forced mate is local");
+same(planComputerTurn("easy", blockSeq, () => 0), { type: "local", col: 0 }, "Easy forced block is local");
+same(planComputerTurn("medium", winSeq, () => 0), { type: "local", col: 0 }, "Medium mate is local");
+same(planComputerTurn("medium", blockSeq, () => 0), { type: "local", col: 0 }, "Medium block is local");
+same(planComputerTurn("medium", [], () => 0), { type: "engine" }, "Medium otherwise asks the engine");
+same(planComputerTurn("medium", hangSeq, () => 0), { type: "engine" }, "Medium hang is not tactical");
+same(planComputerTurn("perfect", [], () => 0), { type: "engine" }, "Perfect asks the engine");
+same(planComputerTurn("perfect", winSeq, () => 0), { type: "engine" }, "Perfect does not take a local mate");
+
+assert(chooseAfterEngine("perfect", [], 3, emptyScores, () => 0) === 3, "Perfect keeps the engine column");
+assert(chooseAfterEngine("perfect", [], 2, emptyScores, seq([0.99, 0])) === 2, "Perfect does not use Medium ranks");
+assert(chooseAfterEngine("medium", [], 2, emptyScores, seq([0.99, 0])) === 3, "Medium can ignore the engine column");
+assert(chooseAfterEngine("perfect", [], 3, [], () => 0) === 3, "Perfect ignores missing scores");
+assert(chooseAfterEngine("perfect", [], 255, [], seq([0])) === 3, "invalid Perfect column falls back to Easy");
+assert(
+  chooseAfterEngine("medium", [], 3, emptyScores, seq([0.99, 0])) === 3,
+  "Medium score-book best after engine",
+);
+assert(
+  chooseAfterEngine("medium", [], 3, emptyScores, seq([0, 0])) === 2,
+  "Medium second-best first tie after engine",
+);
+assert(
+  chooseAfterEngine("medium", hangSeq, 3, [], () => 0.5) !== 3,
+  "Medium fallback still avoids hanging a win",
+);
+assert(chooseAfterEngine("medium", winSeq, 6, [], () => 0) === 0, "chooser still takes the mate");
+
+// Full board from testdata/end_easy (41 ply, one safe drop left).
+const draw = "71255763773133525731261364622167124446454".split("").map((ch) => Number(ch) - 1);
+draw.push(4);
+assert(isDraw(draw), "constructed full-board draw");
+assert(planComputerTurn("easy", draw, () => 0) === null, "Easy skips a draw");
+assert(planComputerTurn("medium", draw, () => 0) === null, "Medium skips a draw");
+assert(planComputerTurn("perfect", draw, () => 0) === null, "Perfect skips a draw");
 
 console.log("medium checks ok");
