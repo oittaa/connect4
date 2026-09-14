@@ -325,6 +325,9 @@ impl Solver {
         scores
     }
 
+    /// Find the first optimal move in column order. Returned column scores are
+    /// exact where known; `INVALID_MOVE` also marks candidates whose exact
+    /// scores were not needed. Use `analyze` for complete column scores.
     pub fn best_move(&mut self, pos: Position) -> Option<(usize, SolveResult, [i32; WIDTH])> {
         if pos.last_player_won() || pos.is_draw() {
             return None;
@@ -343,18 +346,41 @@ impl Solver {
                 best_col = Some(col);
                 break;
             }
-            let mut child = pos;
-            child.play_col(col);
-            let (s, _) = self.score_position(child, false);
-            scores[col] = -s;
-            if scores[col] == target {
+            // A timed-out parent solve has not established an exact target.
+            // Return a legal fallback without certifying any column score.
+            if self.timed_out {
                 best_col = Some(col);
                 break;
             }
+            let mut child = pos;
+            child.play_col(col);
+            let (s, exact) = if let Some(s) = self.exact_score(&child) {
+                (s, true)
+            } else if child.can_win_next() {
+                // negamax requires that the side to move cannot win in one.
+                ((AREA as i32 + 1 - child.moves() as i32) / 2, true)
+            } else {
+                // The exact parent value implies every child is >= -target.
+                // Proving child <= -target therefore certifies an optimal move;
+                // we do not need the full score of an inferior candidate.
+                (self.negamax(child, -target, -target + 1), false)
+            };
+            // Aborted negamax returns alpha, which could otherwise look like
+            // a successful threshold proof. Never expose or cache that value.
             if self.timed_out {
-                if best_col.is_none() {
-                    best_col = Some(col);
+                best_col = Some(col);
+                break;
+            }
+            if exact {
+                scores[col] = -s;
+            }
+            if s <= -target {
+                scores[col] = target;
+                if !exact {
+                    self.proven
+                        .insert_score(self.tt_key(&child), (-target) as i8);
                 }
+                best_col = Some(col);
                 break;
             }
         }
@@ -695,6 +721,133 @@ mod tests {
         let r = s.solve(p);
         assert_eq!(r.score, (AREA as i32 + 1 - 6) / 2);
         assert!(!r.timed_out);
+    }
+
+    #[test]
+    fn best_move_proves_the_four_ply_frontier_without_scoring_every_child() {
+        let mut solver = Solver::with_tt_log(20);
+        let mut pos = Position::new();
+        pos.play_seq("4455");
+        assert_eq!(solver.book().depth(), 4);
+        // An ordinary full child solve exceeds this budget. The known parent
+        // score proves the fork with only a few threshold-search nodes.
+        solver.max_nodes = 100;
+        let (col, result, scores) = solver.best_move(pos).unwrap();
+        assert_eq!(col, 2);
+        assert_eq!(result.score, 18);
+        assert!(!result.timed_out);
+        assert!(result.from_book);
+        assert_eq!(scores[2], 18);
+        assert_eq!(scores[3], INVALID_MOVE);
+        assert_eq!(scores[4], INVALID_MOVE);
+
+        for rejected in [3, 4] {
+            let mut child = pos;
+            child.play_col(rejected);
+            assert_eq!(solver.proven.get(child.canonical_key()), None);
+        }
+        let mut chosen = pos;
+        chosen.play_col(col);
+        assert_eq!(solver.proven.get(chosen.canonical_key()), Some(-18));
+        assert_eq!(solver.proven.len(), 1);
+        // The completed proof remains usable after the session TT is cleared.
+        solver.reset();
+        let cached = solver.solve(chosen);
+        assert_eq!(cached.score, -18);
+        assert_eq!(cached.nodes, 0);
+        assert!(!cached.timed_out);
+    }
+
+    #[test]
+    fn best_move_does_not_accept_a_timed_out_child_probe() {
+        let mut solver = Solver::with_tt_log(20);
+        let mut pos = Position::new();
+        pos.play_seq("4444");
+        solver.max_nodes = 1;
+        let (col, result, scores) = solver.best_move(pos).unwrap();
+        assert!(pos.can_play(col));
+        assert!(result.from_book);
+        assert!(result.timed_out);
+        assert_eq!(result.nodes, 1);
+        assert_eq!(scores, [INVALID_MOVE; WIDTH]);
+        assert!(solver.proven.is_empty());
+    }
+
+    #[test]
+    fn best_move_does_not_probe_against_an_unfinished_parent_score() {
+        let mut solver = Solver::with_tt_log(20);
+        let mut pos = Position::new();
+        pos.play_seq("123456");
+        solver.max_nodes = 1;
+        let (col, result, scores) = solver.best_move(pos).unwrap();
+        assert!(pos.can_play(col));
+        assert!(!result.from_book);
+        assert!(result.timed_out);
+        // Only the interrupted parent search should visit a node.
+        assert_eq!(result.nodes, 1);
+        assert_eq!(scores, [INVALID_MOVE; WIDTH]);
+        assert!(solver.proven.is_empty());
+    }
+
+    #[test]
+    fn best_move_matches_full_analysis_for_wins_draws_and_losses() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/end_easy");
+        let data = fs::read_to_string(path).unwrap();
+        let mut reference = Solver::with_tt_log(20);
+        let mut solver = Solver::with_tt_log(20);
+        let mut outcomes = [false; 3];
+        for (n, line) in data.lines().take(50).enumerate() {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            let expected: i32 = fields[1].parse().unwrap();
+            outcomes[(expected.signum() + 1) as usize] = true;
+            for seq in [fields[0].to_owned(), mirror_seq(fields[0])] {
+                let mut pos = Position::new();
+                assert_eq!(pos.play_seq(&seq), seq.len());
+                reference.reset();
+                let full = reference.analyze(pos);
+                assert!(!reference.timed_out());
+                assert_eq!(best_of(&full), Some(expected));
+                let expected_col = COLUMN_ORDER
+                    .iter()
+                    .copied()
+                    .find(|&c| full[c] == expected)
+                    .unwrap();
+
+                solver.reset();
+                solver.proven = ProvenTable::new();
+                // Exercise both a persisted exact parent and a fresh solve.
+                if n % 2 == 0 {
+                    solver
+                        .proven
+                        .insert_score(pos.canonical_key(), expected as i8);
+                }
+                let (col, result, partial) = solver.best_move(pos).unwrap();
+                assert!(!result.timed_out, "{seq}");
+                assert_eq!(result.score, expected, "{seq}");
+                assert_eq!(col, expected_col, "{seq}");
+                assert_eq!(partial[col], expected, "{seq}");
+                for c in 0..WIDTH {
+                    if partial[c] != INVALID_MOVE {
+                        assert_eq!(partial[c], full[c], "{seq}, column {c}");
+                    }
+                }
+            }
+        }
+        assert_eq!(outcomes, [true; 3]);
+    }
+
+    #[test]
+    fn best_move_handles_immediate_wins_and_terminal_positions() {
+        let mut solver = Solver::with_tt_log(20);
+        let mut pos = Position::new();
+        pos.play_seq("121314");
+        let (col, result, scores) = solver.best_move(pos).unwrap();
+        assert_eq!(col, 0);
+        assert_eq!(result.score, 18);
+        assert_eq!(scores[col], 18);
+        assert!(!result.timed_out);
+        pos.play_col(col);
+        assert!(solver.best_move(pos).is_none());
     }
 
     #[test]
