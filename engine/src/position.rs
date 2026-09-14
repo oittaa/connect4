@@ -161,6 +161,32 @@ impl Position {
         *key = key.wrapping_mul(3);
     }
 
+    /// Decode a score-book key into its canonical board orientation.
+    /// This checks the encoding and piece counts, not game-history reachability.
+    pub fn from_key3(mut key: u64) -> Option<Self> {
+        let original = key;
+        let mut pos = Self::new();
+        for col in (0..WIDTH).rev() {
+            let mut stones = 0u64;
+            let mut height = 0;
+            while key % 3 != 0 {
+                if height == HEIGHT {
+                    return None;
+                }
+                stones = (stones << 1) | u64::from(key % 3 == 1);
+                height += 1;
+                key /= 3;
+            }
+            key /= 3;
+            let shift = col as u32 * H1;
+            pos.current |= stones << shift;
+            pos.mask |= ((1u64 << height) - 1) << shift;
+            pos.moves += height as u8;
+        }
+        (key == 0 && pos.current.count_ones() == u32::from(pos.moves / 2) && pos.key3() == original)
+            .then_some(pos)
+    }
+
     #[inline(always)]
     pub fn can_play(&self, col: usize) -> bool {
         self.mask & top_mask(col) == 0
@@ -337,6 +363,28 @@ fn compute_winning_position(position: u64, mask: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_key3_preserves_board_and_side_to_move() {
+        for seq in [
+            "",
+            "1",
+            "7",
+            "12",
+            "21",
+            "174",
+            "111111",
+            "44444222",
+            "1234567123",
+        ] {
+            let mut pos = Position::new();
+            assert_eq!(pos.play_seq(seq), seq.len());
+            let decoded = Position::from_key3(pos.key3()).unwrap();
+            assert!(decoded == pos || decoded == pos.mirrored(), "{seq}");
+        }
+        assert!(Position::from_key3(u64::MAX).is_none());
+        assert!(Position::from_key3(1).is_none()); // one side-to-move disc at ply 1
+    }
 
     #[test]
     fn key3_mirrors_and_transpositions() {

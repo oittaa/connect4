@@ -66,6 +66,6 @@ The required version-1 slot counts for plies 0–10 are:
 1, 4, 32, 132, 660, 2360, 9440, 30240, 104580, 304920, 941472
 ```
 
-There are 1,393,841 slots total. The packed payload is 522,693 bytes; the 20-byte fixed header and eleven 16-byte directory entries make a complete depth-10 file 522,889 bytes.
+The shipped `books/9ply.c4move` uses plies 0-9: 452,369 slots and a 169,641-byte payload. Its 20-byte header and ten directory entries bring the file to 169,821 bytes. Of those slots, 402,045 hold moves for the 399,029 source positions and their mirrored colour arrangements. Unreachable or terminal positions remain unknown.
 
-A syntactically valid file may contain value-7 slots and is therefore a valid checkpoint or partial book. It must not be described or published as complete until exhaustive reachability and optimality validation succeeds.
+The converter reads `books/10ply.c4book` and chooses a legal child whose negated score equals the parent score. Immediate wins are checked directly. It does not run the solver. A depth-N score book supplies moves through ply N-1; no empty frontier section is written. Generation verifies every stored move in both orientations against the source scores before writing the file.

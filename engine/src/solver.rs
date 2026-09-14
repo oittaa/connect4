@@ -440,30 +440,6 @@ impl Solver {
         self.best_move(pos).map(|(col, _, _)| col)
     }
 
-    /// Verify a particular move against an independently known exact parent
-    /// score. This is used by move-book generation and validation.
-    pub fn certify_move(&mut self, pos: Position, col: usize, target: i32) -> bool {
-        self.reset_nodes();
-        self.begin_clock();
-        if pos.last_player_won() || pos.is_draw() || col >= WIDTH || !pos.can_play(col) {
-            return false;
-        }
-        if pos.is_winning_move(col) {
-            return target == (AREA as i32 + 1 - pos.moves() as i32) / 2;
-        }
-        let mut child = pos;
-        child.play_col(col);
-        if let Some(score) = self.exact_score(&child) {
-            return -score == target;
-        }
-        if child.can_win_next() {
-            let score = (AREA as i32 + 1 - child.moves() as i32) / 2;
-            return -score == target;
-        }
-        let score = self.negamax(child, -target, -target + 1);
-        !self.timed_out && score <= -target
-    }
-
     fn negamax(&mut self, pos: Position, mut alpha: i32, mut beta: i32) -> i32 {
         debug_assert!(alpha < beta);
         debug_assert!(!pos.can_win_next());

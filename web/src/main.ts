@@ -477,12 +477,12 @@ function loadDownloadedBooks(): void {
   });
   void send({
     type: "fetchMoveBook",
-    url: new URL("books/10ply.c4move", document.baseURI).href,
+    url: new URL("books/opening.c4move", document.baseURI).href,
   }).then((r) => {
     if (generation !== bookGeneration || !bookOn) return;
     reportBook(r);
     if (r.type === "error" && !analyzing && !thinking && !gameOver()) {
-      engineLine.textContent = `${r.message}. Computer moves will use score-book/search fallback.`;
+      engineLine.textContent = `${r.message}. Using the solver.`;
     }
   });
 }

@@ -20,13 +20,12 @@ cargo run --release -p engine -- bench testdata/end_easy
 cargo run --release -p engine --example book_frontier -- 3
 cargo run --release -p engine -- empty --book books/2ply.c4book
 
-# resumable compact best-move book generation and validation
-cargo run --release -p engine -- gen-move-book --depth 10 \
-  --scores books/10ply.c4book --out books/10ply.c4move \
-  --threads 4 --tt-bits 22
+# convert existing scores to compact moves (no search)
+cargo run --release -p engine -- gen-move-book \
+  --scores books/10ply.c4book --out books/9ply.c4move
 cargo run --release -p engine -- validate-move-book \
-  --scores books/10ply.c4book --book books/10ply.c4move \
-  --sample 100 --tt-bits 22
+  --scores books/10ply.c4book --book books/9ply.c4move
+cp books/9ply.c4move web/public/books/opening.c4move
 
 # web (needs rustup target wasm32-unknown-unknown and wasm-bindgen-cli)
 ./scripts/build-wasm.sh
@@ -59,22 +58,19 @@ after a successful load. Failed downloads leave the smaller book available.
 Valid empty, shallower, or sparse books retain the embedded 4-ply coverage:
 missing entries are filled from the embedded book before it is replaced.
 Copy the latest larger book to `web/public/books/opening.c4book` when deploying;
-the current version is 8 ply. The web app intentionally keeps that score book
-and independently downloads `web/public/books/10ply.c4move` for immediate
-computer move selection through ply 10. A move-book hit bypasses parent and
-child scoring; **Show best moves** still uses full scored analysis.
+the current version is 8 ply.
 
-The compact move book is `C4MV` v1: dense height/combinadic indexing and packed
-3-bit columns, with 7 reserved for an unknown slot. See
-[`docs/c4mv.md`](docs/c4mv.md) for the byte-level format. Existing output is a
-safe checkpoint: rerun the same `gen-move-book` command to solve only missing
-entries. `--pilot N`, `--limit N`, and `--seconds N` bound representative or
-partial generation runs. A partial file remains a valid fallback-enabled book,
-but must not be published as the complete depth-10 asset.
+The app also downloads `books/opening.c4move` (169,821 bytes). It is generated
+directly from `books/10ply.c4book`: a parent's best move is found by comparing
+its score with its children's scores. This covers 399,029 positions through
+ply 9, supplying the first ten moves without search. Later positions use the
+solver; **Show best moves** still requests full analysis. The source score book
+does not contain ply-11 children, so the move file stops at ply 9 instead of
+storing an empty ply-10 section. See [`docs/c4mv.md`](docs/c4mv.md) for the format.
 
 The opening-book toggle and solver diagnostics are visible only with `#DEBUG`
-(or `#moves=44452&DEBUG`). Turning the toggle off cancels any pending book
-download and restores the embedded 4-ply book.
+(or `#moves=44452&DEBUG`). Turning the toggle off cancels both downloads,
+unloads the downloaded books, and restores the embedded 4-ply score book.
 
 ```bash
 c4solver gen-book --depth 2 --out books/2ply.c4book

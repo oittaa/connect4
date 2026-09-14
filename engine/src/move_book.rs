@@ -57,8 +57,6 @@ struct Location {
     ply: usize,
     slot: usize,
     heights_mirrored: bool,
-    symmetric_heights: bool,
-    reflected_color_slot: usize,
 }
 
 impl Default for MoveBook {
@@ -117,15 +115,6 @@ impl MoveBook {
         count
     }
 
-    pub fn populated_at(&self, ply: u8) -> u32 {
-        let Some(section) = self.sections.get(ply as usize) else {
-            return 0;
-        };
-        (0..section.slots as usize)
-            .filter(|&slot| read_three_bits(&section.data, slot) != UNKNOWN_MOVE)
-            .count() as u32
-    }
-
     /// Look up a legal move in the caller's board orientation.
     pub fn get(&self, pos: &Position) -> Option<usize> {
         if pos.moves() > self.max_ply || pos.last_player_won() || pos.is_draw() {
@@ -161,51 +150,27 @@ impl MoveBook {
         if pos.last_player_won() || pos.is_draw() {
             return Err("cannot insert a move for a terminal position".into());
         }
-        let location = self
-            .location(pos)
-            .ok_or_else(|| "position is not indexable".to_string())?;
-        let stored = if location.heights_mirrored {
-            WIDTH - 1 - col
-        } else {
-            col
-        } as u8;
-        let mut changed =
-            write_three_bits_min(&mut self.sections[location.ply].data, location.slot, stored)
-                as u32;
-        if location.symmetric_heights {
-            let reflected = (WIDTH - 1 - col) as u8;
+        let mut changed = 0;
+        for (board, col) in [(*pos, col), (pos.mirrored(), WIDTH - 1 - col)] {
+            let location = self.location(&board).ok_or("position is not indexable")?;
+            let stored = if location.heights_mirrored {
+                WIDTH - 1 - col
+            } else {
+                col
+            };
             changed += write_three_bits_min(
                 &mut self.sections[location.ply].data,
-                location.reflected_color_slot,
-                reflected,
+                location.slot,
+                stored as u8,
             ) as u32;
         }
         Ok(changed)
     }
 
-    /// Both colour orientations must be present for symmetric height vectors.
-    pub fn is_complete_for(&self, pos: &Position) -> bool {
-        let Some(location) = self.location(pos) else {
-            return false;
-        };
-        let section = &self.sections[location.ply];
-        if read_three_bits(&section.data, location.slot) == UNKNOWN_MOVE {
-            return false;
-        }
-        !location.symmetric_heights
-            || read_three_bits(&section.data, location.reflected_color_slot) != UNKNOWN_MOVE
-    }
-
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn index_slots(&self, pos: &Position) -> Option<(u8, u32, Option<u32>)> {
+    pub(crate) fn index(&self, pos: &Position) -> Option<(u8, u32)> {
         let location = self.location(pos)?;
-        Some((
-            location.ply as u8,
-            location.slot as u32,
-            location
-                .symmetric_heights
-                .then_some(location.reflected_color_slot as u32),
-        ))
+        Some((location.ply as u8, location.slot as u32))
     }
 
     pub fn load(bytes: &[u8]) -> Result<Self, String> {
@@ -244,12 +209,7 @@ impl MoveBook {
         if directory_count != max_ply as usize + 1 {
             return Err("directory count does not match depth".into());
         }
-        let directory_len = directory_count
-            .checked_mul(DIRECTORY_ENTRY_LEN)
-            .ok_or_else(|| "directory length overflow".to_string())?;
-        let payload_start = FIXED_HEADER_LEN
-            .checked_add(directory_len)
-            .ok_or_else(|| "header length overflow".to_string())?;
+        let payload_start = FIXED_HEADER_LEN + directory_count * DIRECTORY_ENTRY_LEN;
         if bytes.len() < payload_start {
             return Err("truncated move-book directory".into());
         }
@@ -279,9 +239,7 @@ impl MoveBook {
             if section_offset != expected_offset || length != expected_length {
                 return Err(format!("invalid offset or length at ply {ply}"));
             }
-            let end = section_offset
-                .checked_add(length)
-                .ok_or_else(|| "section length overflow".to_string())?;
+            let end = section_offset + length;
             if end > bytes.len() {
                 return Err(format!("truncated section at ply {ply}"));
             }
@@ -346,18 +304,10 @@ impl MoveBook {
         let colors_per_height = choose(ply, ply / 2) as usize;
         let primary_color_rank = color_rank(pos, heights_mirrored) as usize;
         let slot = height_rank * colors_per_height + primary_color_rank;
-        let symmetric_heights = heights == reversed;
-        let reflected_color_slot = if symmetric_heights {
-            height_rank * colors_per_height + color_rank(pos, true) as usize
-        } else {
-            slot
-        };
         Some(Location {
             ply,
             slot,
             heights_mirrored,
-            symmetric_heights,
-            reflected_color_slot,
         })
     }
 }
@@ -610,7 +560,6 @@ mod tests {
         assert_eq!(book.insert(&left, 2).unwrap(), 2);
         assert_eq!(book.get(&left), Some(2));
         assert_eq!(book.get(&right), Some(4));
-        assert!(book.is_complete_for(&left));
     }
 
     #[test]
