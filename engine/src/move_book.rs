@@ -650,7 +650,7 @@ mod tests {
         write_three_bits_min(
             &mut malformed_entry.sections[location.ply].data,
             location.slot,
-            0,
+            6,
         );
         assert_eq!(malformed_entry.get(&full), None);
     }
