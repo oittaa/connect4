@@ -163,6 +163,7 @@ function ready(id: number): WorkerRes {
     type: "moved",
     col: 3,
     moveScores: null,
+    hintScores: [],
     nodes: 0,
     micros: 0,
     timedOut: false,

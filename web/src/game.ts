@@ -284,13 +284,15 @@ export function shouldRequestAnalysis(ctx: HintSessionContext): boolean {
   return ctx.hintsOn && ctx.engineReady && !ctx.gameOver && (ctx.paused || ctx.role === "human");
 }
 
+export function shouldRequestAvailableScores(ctx: HintSessionContext): boolean {
+  return ctx.hintsOn && ctx.engineReady && isActiveComputerTurn(ctx);
+}
+
 export function shouldShowHintDisplay(
   hintsOn: boolean,
   gameOver: boolean,
-  paused: boolean,
-  role: Role,
 ): boolean {
-  return hintsOn && !gameOver && (paused || role === "human");
+  return hintsOn && !gameOver;
 }
 
 export function analysisReplyApplies(
@@ -358,9 +360,16 @@ export function provenBestColumns(
   scores: number[] | null,
   heights: number[],
   timedOut: boolean,
+  provenCol?: number,
 ): number[] {
-  if (!scores || !analysisProven(scores, heights, timedOut)) return [];
-  return bestCols(scores);
+  if (!scores || timedOut) return [];
+  if (analysisComplete(scores, heights)) return bestCols(scores);
+  // A completed best-move search can prove an optimal column without scoring
+  // every alternative. A partial analysis alone cannot establish that proof.
+  if (provenCol !== undefined && heights[provenCol] < HEIGHT && scores[provenCol] !== INVALID) {
+    return scores.map((s, c) => s === scores[provenCol] ? c : -1).filter((c) => c >= 0);
+  }
+  return [];
 }
 
 export function analysisScoreClass(score: number, isBest: boolean): string | null {

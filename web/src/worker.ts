@@ -29,6 +29,7 @@ type Engine = {
   cacheSave(): Uint8Array;
   cacheLen(): number;
   bookColumnScores(moves: Uint8Array): Int16Array;
+  knownColumnScores(moves: Uint8Array): Int16Array;
 };
 
 let engine: Engine | null = null;
@@ -225,6 +226,18 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         });
         break;
       }
+      case "availableScores": {
+        // Read-only hints for active computers, including JS-only Easy moves.
+        const moves = u8(msg.moves);
+        const hit = readHit(engine.cacheGet(moves), true);
+        const cached = hit?.scores ? completeMoveScores(hit.scores, msg.moves) : null;
+        reply({
+          id: msg.id,
+          type: "availableScores",
+          scores: cached ?? Array.from(engine.knownColumnScores(moves)),
+        });
+        break;
+      }
       case "analyze": {
         const moves = u8(msg.moves);
         const key = engine.key(moves) ?? "";
@@ -270,6 +283,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
             type: "moved",
             col: bestCols(cached)[0] ?? 255,
             moveScores: cached,
+            hintScores: cached,
             nodes: 0,
             micros: 0,
             timedOut: false,
@@ -290,6 +304,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           type: "moved",
           col,
           moveScores: completeMoveScores(engine.bookColumnScores(moves), msg.moves),
+          hintScores: Array.from(engine.knownColumnScores(moves)),
           nodes,
           micros,
           timedOut,

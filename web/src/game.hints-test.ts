@@ -7,6 +7,7 @@ import {
   planComputerTurn,
   planHintAndComputer,
   shouldRequestAnalysis,
+  shouldRequestAvailableScores,
   shouldShowHintDisplay,
   type HintSessionContext,
 } from "./game.ts";
@@ -46,16 +47,21 @@ assert(!shouldRequestAnalysis(medium), "active Medium does not request analysis"
 assert(!shouldRequestAnalysis(ctx({ hintsOn: false, role: "human" })), "hints off skips analysis");
 assert(!shouldRequestAnalysis(ctx({ engineReady: false })), "engine not ready skips analysis");
 assert(!shouldRequestAnalysis(ctx({ gameOver: true })), "game over skips analysis");
+for (const role of ["easy", "medium", "perfect"] as const) {
+  assert(shouldRequestAvailableScores(ctx({ role })), `${role} can read available scores`);
+  assert(!shouldRequestAvailableScores(ctx({ role, hintsOn: false })), `${role} skips scores with hints off`);
+  assert(!shouldRequestAvailableScores(ctx({ role, engineReady: false })), `${role} waits for the engine`);
+  assert(!shouldRequestAvailableScores(ctx({ role, gameOver: true })), `${role} skips scores at game over`);
+}
+assert(!shouldRequestAvailableScores(human), "human hints use full analysis");
+assert(!shouldRequestAvailableScores(pausedComputer), "paused hints use full analysis");
 assert(isActiveComputerTurn(computer), "Perfect to move is an active computer");
 assert(!isActiveComputerTurn(pausedComputer), "paused computer is not active");
 assert(!isActiveComputerTurn(human), "human turn is not an active computer");
 
-assert(shouldShowHintDisplay(true, false, false, "human"), "show hints on a human turn");
-assert(shouldShowHintDisplay(true, false, true, "perfect"), "show hints while paused");
-assert(!shouldShowHintDisplay(true, false, false, "perfect"), "hide the score strip on an active computer");
-assert(!shouldShowHintDisplay(true, false, false, "easy"), "hide the score strip on active Easy");
-assert(!shouldShowHintDisplay(false, false, false, "human"), "hints off hides the strip");
-assert(!shouldShowHintDisplay(true, true, true, "perfect"), "game over hides the strip");
+assert(shouldShowHintDisplay(true, false), "show available hints regardless of player role or pause");
+assert(!shouldShowHintDisplay(false, false), "hints off hides the strip");
+assert(!shouldShowHintDisplay(true, true), "game over hides the strip");
 
 same(
   planHintAndComputer("position", computer),

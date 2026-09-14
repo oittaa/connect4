@@ -188,6 +188,32 @@ impl Solver {
         playable.then_some(scores)
     }
 
+    /// Scores already known from books, proven child positions, or immediate
+    /// wins/losses. Unknown columns stay invalid; this never searches.
+    pub fn known_column_scores(&self, pos: &Position) -> [i32; WIDTH] {
+        let mut scores = [INVALID_MOVE; WIDTH];
+        if pos.last_player_won() || pos.is_draw() {
+            return scores;
+        }
+        for (col, score) in scores.iter_mut().enumerate() {
+            if !pos.can_play(col) {
+                continue;
+            }
+            if pos.is_winning_move(col) {
+                *score = (AREA as i32 + 1 - pos.moves() as i32) / 2;
+                continue;
+            }
+            let mut child = *pos;
+            child.play_col(col);
+            if let Some(s) = self.exact_score(&child) {
+                *score = -s;
+            } else if child.can_win_next() {
+                *score = -((AREA as i32 + 1 - child.moves() as i32) / 2);
+            }
+        }
+        scores
+    }
+
     pub fn proven(&self) -> &ProvenTable {
         &self.proven
     }
@@ -902,9 +928,19 @@ mod tests {
                 assert_eq!(result.score, expected, "{seq}");
                 assert_eq!(col, expected_col, "{seq}");
                 assert_eq!(partial[col], expected, "{seq}");
+                let nodes = solver.node_count();
+                let known = solver.known_column_scores(&pos);
+                assert_eq!(
+                    known[col], expected,
+                    "selected column must remain available: {seq}"
+                );
+                assert_eq!(solver.node_count(), nodes, "reading hints must not search");
                 for c in 0..WIDTH {
                     if partial[c] != INVALID_MOVE {
                         assert_eq!(partial[c], full[c], "{seq}, column {c}");
+                    }
+                    if known[c] != INVALID_MOVE {
+                        assert_eq!(known[c], full[c], "known hint: {seq}, column {c}");
                     }
                 }
             }
@@ -1310,6 +1346,35 @@ mod tests {
         let _ = solver.column_scores_from_book(&pos);
         assert_eq!(solver.node_count(), nodes);
         assert_eq!(solver.move_book_hit(), hit);
+    }
+
+    #[test]
+    fn known_columns_keep_unsearched_and_aborted_children_unknown() {
+        let mut solver = Solver::with_tt_log(20);
+        let mut pos = Position::new();
+        pos.play_seq("4455");
+        assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
+        solver.max_nodes = 100;
+        let (col, result, _) = solver.best_move(pos).unwrap();
+        assert!(!result.timed_out);
+        let cache = solver.proven.save();
+        let known = solver.known_column_scores(&pos);
+        assert_eq!(known[col], 18);
+        assert_eq!(known[3], INVALID_MOVE);
+        assert_eq!(known[4], INVALID_MOVE);
+        assert_eq!(solver.node_count(), result.nodes);
+        assert_eq!(solver.proven.save(), cache);
+        assert!(solver.column_scores_from_book(&pos).is_none());
+
+        let mut interrupted = Solver::with_tt_log(20);
+        let mut pos = Position::new();
+        pos.play_seq("4444");
+        interrupted.max_nodes = 1;
+        interrupted.best_move(pos).unwrap();
+        assert!(interrupted.timed_out());
+        assert_eq!(interrupted.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
+        assert_eq!(interrupted.node_count(), 1);
+        assert!(interrupted.timed_out());
     }
 
     fn analysis_timeout_pos() -> Position {
