@@ -172,12 +172,12 @@ impl Solver {
         }
         let mut scores = [INVALID_MOVE; WIDTH];
         let mut playable = false;
-        for col in 0..WIDTH {
+        for (col, score) in scores.iter_mut().enumerate() {
             if !pos.can_play(col) {
                 continue;
             }
             playable = true;
-            scores[col] = if pos.is_winning_move(col) {
+            *score = if pos.is_winning_move(col) {
                 (AREA as i32 + 1 - pos.moves() as i32) / 2
             } else {
                 let mut child = *pos;
@@ -517,12 +517,10 @@ impl Solver {
                         return alpha;
                     }
                 }
-            } else if flag == FLAG_UPPER {
-                if beta > val {
-                    beta = val;
-                    if alpha >= beta {
-                        return beta;
-                    }
+            } else if flag == FLAG_UPPER && beta > val {
+                beta = val;
+                if alpha >= beta {
+                    return beta;
                 }
             }
         }
@@ -1357,12 +1355,12 @@ mod tests {
         let mut interrupted = pos;
         interrupted.play_col(0);
         assert_eq!(solver.proven.get(interrupted.canonical_key()), None);
-        for col in 1..WIDTH {
+        for (col, &score) in scores.iter().enumerate().skip(1) {
             let mut child = pos;
             child.play_col(col);
             assert_eq!(
                 solver.proven.get(child.canonical_key()),
-                Some(-scores[col]),
+                Some(-score),
                 "column {col}"
             );
         }

@@ -1,7 +1,7 @@
 use engine::book::Book;
 use engine::move_book::MoveBook;
 use engine::move_book_gen::{from_scores, validate};
-use engine::position::{Position, WIDTH};
+use engine::position::Position;
 use engine::solver::{winning_move_number, Solver, INVALID_MOVE};
 use std::env;
 use std::fs;
@@ -209,13 +209,13 @@ fn main() {
             if let Some(path) = write_book {
                 let mut book = Book::new();
                 book.insert(pos.key(), r.score as i8, 0);
-                for c in 0..WIDTH {
-                    if scores[c] == INVALID_MOVE {
+                for (c, &score) in scores.iter().enumerate() {
+                    if score == INVALID_MOVE {
                         continue;
                     }
                     let mut child = pos;
                     child.play_col(c);
-                    book.insert(child.key(), (-scores[c]) as i8, 1);
+                    book.insert(child.key(), (-score) as i8, 1);
                 }
                 if let Some(dir) = Path::new(path).parent() {
                     fs::create_dir_all(dir).ok();
@@ -320,10 +320,10 @@ fn main() {
             solver.fill_book_with(Position::new(), depth, &mut book, threads, |b| {
                 eprint!("\r{} positions (target depth {})\x1b[K", b.len(), depth);
                 let _ = io::stderr().flush();
-                if b.len().saturating_sub(last_saved) >= 10 {
-                    if fs::write(&out_path, b.save()).is_ok() {
-                        last_saved = b.len();
-                    }
+                if b.len().saturating_sub(last_saved) >= 10
+                    && fs::write(&out_path, b.save()).is_ok()
+                {
+                    last_saved = b.len();
                 }
             });
             eprintln!();
@@ -446,9 +446,4 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
     if fail > 0 {
         process::exit(1);
     }
-}
-
-#[allow(dead_code)]
-fn _w() -> usize {
-    WIDTH
 }

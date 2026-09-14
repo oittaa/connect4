@@ -177,3 +177,9 @@ impl WasmEngine {
         self.solver.last_micros() as f64
     }
 }
+
+impl Default for WasmEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}

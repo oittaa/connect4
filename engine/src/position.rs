@@ -169,7 +169,7 @@ impl Position {
         for col in (0..WIDTH).rev() {
             let mut stones = 0u64;
             let mut height = 0;
-            while key % 3 != 0 {
+            while !key.is_multiple_of(3) {
                 if height == HEIGHT {
                     return None;
                 }
@@ -313,7 +313,7 @@ impl Position {
         if self.mask & bit == 0 {
             0
         } else {
-            let first = if self.moves % 2 == 0 {
+            let first = if self.moves.is_multiple_of(2) {
                 self.current
             } else {
                 self.current ^ self.mask

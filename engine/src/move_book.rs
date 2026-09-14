@@ -326,7 +326,7 @@ fn reversed(mut values: [u8; WIDTH]) -> [u8; WIDTH] {
 }
 
 fn color_rank(pos: &Position, reflect_columns: bool) -> u32 {
-    let side_to_move = if pos.moves() % 2 == 0 { 1 } else { 2 };
+    let side_to_move = if pos.moves().is_multiple_of(2) { 1 } else { 2 };
     let mut occupied_index = 0usize;
     let mut selected = 0usize;
     let mut rank = 0u32;

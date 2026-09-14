@@ -314,7 +314,11 @@ mod tests {
         mem.merge(&disk);
 
         assert_eq!(mem.len(), 2);
-        assert_eq!(mem.get(0xC), Some(3), "freshly solved entry must survive merge");
+        assert_eq!(
+            mem.get(0xC),
+            Some(3),
+            "freshly solved entry must survive merge"
+        );
         assert_eq!(mem.get(0xB), Some(2));
         assert!(mem.get(0xA).is_none(), "capacity still bounds the table");
     }
