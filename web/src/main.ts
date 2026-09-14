@@ -2,14 +2,14 @@ import {
   AREA,
   HEIGHT,
   WIDTH,
-  analysisComplete,
-  bestCols,
+  analysisScoreClass,
   chooseAfterEngine,
   formatScore,
   isDraw,
   lastMoveWin,
   planComputerTurn,
   playMoves,
+  provenBestColumns,
   statusText,
   toMove,
   type ComputerRole,
@@ -23,7 +23,7 @@ import type { WorkerRes } from "./engineProtocol";
 const history: number[] = [];
 let cursor = 0;
 let roles: [Role, Role] = ["human", "human"];
-let analysisScores: number[] | null = null;
+let analysis: { scores: number[]; timedOut: boolean } | null = null;
 let analyzing = false;
 let analysisGeneration = 0;
 let thinking = false;
@@ -110,8 +110,9 @@ function renderBoard(animateLast: boolean): void {
   const g = playMoves(m);
   const win = lastMoveWin(m);
   const winSet = new Set((win ?? []).map(([r, c]) => `${r},${c}`));
-  const proven = !!(analysisScores && analysisComplete(analysisScores, g.height));
-  const best = proven && analyzeChk.checked && analysisScores ? bestCols(analysisScores) : [];
+  const best = analyzeChk.checked
+    ? provenBestColumns(analysis?.scores ?? null, g.height, analysis?.timedOut ?? false)
+    : [];
 
   const over = gameOver();
   if (over) engineLine.textContent = "Game over.";
@@ -165,16 +166,14 @@ function renderBoard(animateLast: boolean): void {
       span.textContent = "…";
       scoresEl.appendChild(span);
     }
-  } else if (!over && analyzeChk.checked && analysisScores) {
+  } else if (!over && analyzeChk.checked && analysis) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
-    analysisScores.forEach((s, i) => {
+    analysis.scores.forEach((s, i) => {
       const span = document.createElement("span");
       span.textContent = formatScore(s);
-      if (best.includes(i)) span.classList.add("best");
-      else if (s > 0) span.classList.add("win");
-      else if (s < 0) span.classList.add("loss");
-      else if (s === 0) span.classList.add("draw");
+      const tone = analysisScoreClass(s, best.includes(i));
+      if (tone) span.classList.add(tone);
       scoresEl.appendChild(span);
     });
   } else {
@@ -184,8 +183,9 @@ function renderBoard(animateLast: boolean): void {
 
   statusEl.textContent = statusText(
     m,
-    analyzeChk.checked && !analyzing ? analysisScores : null,
+    analyzeChk.checked && !analyzing ? analysis?.scores ?? null : null,
     thinking,
+    analysis?.timedOut ?? false,
   );
   if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
   statusEl.classList.toggle("thinking", !over && !paused && (thinking || analyzing));
@@ -213,7 +213,7 @@ function applyMove(col: number): void {
 }
 
 function positionChanged(animateLast: boolean): void {
-  analysisScores = null;
+  analysis = null;
   analysisGeneration++;
   analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
@@ -305,7 +305,7 @@ async function requestAnalyze(): Promise<void> {
   if (token !== analysisGeneration || !analyzeChk.checked || gameOver()) return;
   analyzing = false;
   if (r.type === "analyzed") {
-    analysisScores = r.scores;
+    analysis = { scores: r.scores, timedOut: r.timedOut };
     reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache);
   } else {
     engineLine.textContent = r.type === "error" ? r.message : "Analysis unavailable.";

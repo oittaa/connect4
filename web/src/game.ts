@@ -248,12 +248,39 @@ export function chooseAfterEngine(
   return legalEngineColumn(col) ? col : null;
 }
 
+/** True if every legal column has an exact score. Ignores timeout. */
 export function analysisComplete(scores: ArrayLike<number>, heights: number[]): boolean {
   if (scores.length < WIDTH) return false;
   for (let c = 0; c < WIDTH; c++) {
     if (heights[c] < HEIGHT && scores[c] === INVALID) return false;
   }
   return true;
+}
+
+/** Proven only when analysis finished without timeout and every legal column is exact. */
+export function analysisProven(
+  scores: ArrayLike<number>,
+  heights: number[],
+  timedOut: boolean,
+): boolean {
+  return !timedOut && analysisComplete(scores, heights);
+}
+
+export function provenBestColumns(
+  scores: number[] | null,
+  heights: number[],
+  timedOut: boolean,
+): number[] {
+  if (!scores || !analysisProven(scores, heights, timedOut)) return [];
+  return bestCols(scores);
+}
+
+export function analysisScoreClass(score: number, isBest: boolean): string | null {
+  if (score === INVALID) return null;
+  if (isBest) return "best";
+  if (score > 0) return "win";
+  if (score < 0) return "loss";
+  return "draw";
 }
 
 /**
@@ -290,7 +317,12 @@ export function formatScore(s: number): string {
   return s > 0 ? `W${s}` : `L${-s}`;
 }
 
-export function statusText(moves: number[], scores: number[] | null, thinking: boolean): string {
+export function statusText(
+  moves: number[],
+  scores: number[] | null,
+  thinking: boolean,
+  timedOut = false,
+): string {
   const win = lastMoveWin(moves);
   if (win) {
     const winner = toMove(moves.slice(0, -1)) === 1 ? "Red" : "Yellow";
@@ -299,7 +331,7 @@ export function statusText(moves: number[], scores: number[] | null, thinking: b
   if (isDraw(moves)) return "Draw";
   const side = toMove(moves) === 1 ? "Red" : "Yellow";
   if (thinking) return `${side} thinking…`;
-  if (scores && analysisComplete(scores, playMoves(moves).height)) {
+  if (scores && analysisProven(scores, playMoves(moves).height, timedOut)) {
     const b = bestCols(scores);
     if (b.length) {
       const s = scores[b[0]];
