@@ -131,14 +131,17 @@ pub fn generate(options: &GenerateOptions) -> Result<GenerationReport, String> {
         jobs.truncate(limit);
     }
     let queued_frontier = jobs.len();
+    let tt_bytes_per_worker = (1u64 << options.tt_bits.clamp(16, 27)) * 6;
     eprintln!(
-        "reachable={} frontier={} lower_slots_added={} queued={} threads={} tt=2^{}",
+        "reachable={} frontier={} lower_slots_added={} queued={} threads={} tt=2^{} (~{} MiB/worker, ~{} MiB total)",
         positions.iter().map(Vec::len).sum::<usize>(),
         frontier.len(),
         lower_added,
         queued_frontier,
         options.threads,
-        options.tt_bits
+        options.tt_bits,
+        tt_bytes_per_worker / (1024 * 1024),
+        tt_bytes_per_worker * options.threads as u64 / (1024 * 1024)
     );
 
     let shared_book = Arc::new(Mutex::new(move_book));
@@ -703,5 +706,26 @@ mod tests {
             positions.last().unwrap().key3()
         );
         assert_eq!(sample.len(), 5);
+    }
+
+    #[test]
+    fn dense_indices_are_unique_for_positions_and_mirrors_through_eight() {
+        let book = MoveBook::empty(8).unwrap();
+        let positions = collect_reachable(8);
+        let mut owners: Vec<Vec<u64>> = EXPECTED_SLOT_COUNTS[..=8]
+            .iter()
+            .map(|&slots| vec![u64::MAX; slots as usize])
+            .collect();
+        for pos in positions.iter().flatten() {
+            let key = pos.key3();
+            let (ply, primary, reflected) = book.index_slots(pos).unwrap();
+            claim_slot(&mut owners[ply as usize], primary, key).unwrap();
+            if let Some(slot) = reflected {
+                claim_slot(&mut owners[ply as usize], slot, key).unwrap();
+            }
+            let mirrored = pos.mirrored();
+            let (_, mirror_primary, _) = book.index_slots(&mirrored).unwrap();
+            assert!(primary == mirror_primary || reflected == Some(mirror_primary));
+        }
     }
 }

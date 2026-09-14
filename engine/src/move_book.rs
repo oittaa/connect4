@@ -642,6 +642,17 @@ mod tests {
         };
         assert!(terminal.last_player_won());
         assert_eq!(MoveBook::empty(10).unwrap().get(&terminal), None);
+
+        let full = position("111111");
+        assert!(!full.can_play(0));
+        let mut malformed_entry = MoveBook::empty(6).unwrap();
+        let location = malformed_entry.location(&full).unwrap();
+        write_three_bits_min(
+            &mut malformed_entry.sections[location.ply].data,
+            location.slot,
+            0,
+        );
+        assert_eq!(malformed_entry.get(&full), None);
     }
 
     #[test]
@@ -658,6 +669,12 @@ mod tests {
         let mut bad_payload = valid.clone();
         *bad_payload.last_mut().unwrap() ^= 1;
         assert!(MoveBook::load(&bad_payload).is_err());
+        let payload_start = FIXED_HEADER_LEN + 11 * DIRECTORY_ENTRY_LEN;
+        let mut bad_padding = valid.clone();
+        bad_padding[payload_start] &= !(1 << 3);
+        let checksum = crc32(&bad_padding[payload_start..]);
+        bad_padding[16..20].copy_from_slice(&checksum.to_le_bytes());
+        assert!(MoveBook::load(&bad_padding).is_err());
         assert!(MoveBook::load(&valid[..valid.len() - 1]).is_err());
         let mut trailing = valid;
         trailing.push(0);

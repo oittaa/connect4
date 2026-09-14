@@ -151,6 +151,7 @@ impl WasmEngine {
     /// 0-based column, or 255 if none.
     #[wasm_bindgen(js_name = bestMove)]
     pub fn best_move(&mut self, moves: &[u8]) -> u8 {
+        self.solver.reset_nodes();
         let mut p = Position::new();
         if !p.play_moves(moves) {
             return 255;
