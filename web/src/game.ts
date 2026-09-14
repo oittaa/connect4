@@ -4,7 +4,11 @@ export const AREA = WIDTH * HEIGHT;
 export const INVALID = -1000;
 
 export type Role = "human" | "easy" | "medium" | "perfect";
+export type ComputerRole = Exclude<Role, "human">;
 export type Player = 1 | 2;
+
+/** Local column, engine request, or `null` when the position is already over. */
+export type ComputerTurnPlan = { type: "local"; col: number } | { type: "engine" };
 
 export interface Grid {
   cells: number[][]; // [row][col], row 0 = bottom, 0 empty, 1 red, 2 yellow
@@ -121,14 +125,14 @@ export function forcedWinOrBlock(moves: number[]): number | null {
   return null;
 }
 
-export function easyMove(moves: number[]): number | null {
+export function easyMove(moves: number[], random: () => number = Math.random): number | null {
   const forced = forcedWinOrBlock(moves);
   if (forced !== null) return forced;
   const legal = legalCols(playMoves(moves));
   if (legal.length === 0) return null;
   // Prefer center-ish random.
   const order = [3, 4, 2, 5, 1, 6, 0].filter((c) => legal.includes(c));
-  return order[Math.floor(Math.random() * order.length)] ?? legal[0];
+  return order[Math.floor(random() * order.length)] ?? legal[0];
 }
 
 /** Probability Medium keeps the engine/book column when scores are unavailable. */
@@ -190,6 +194,54 @@ export function pickMedium(
   const rest = pool.filter((c) => c !== engineCol);
   const pickFrom = rest.length > 0 ? rest : pool;
   return pickFrom[Math.floor(random() * pickFrom.length)] ?? engineCol;
+}
+
+function isTerminal(moves: number[]): boolean {
+  return lastMoveWin(moves) !== null || isDraw(moves);
+}
+
+function legalEngineColumn(col: number): boolean {
+  return col >= 0 && col < WIDTH;
+}
+
+/**
+ * Decide how a computer seat should move. Easy is always local; Medium takes an
+ * immediate win or block locally and otherwise asks the engine; Perfect always
+ * asks the engine. The caller owns delay, pause, and request invalidation.
+ */
+export function planComputerTurn(
+  role: ComputerRole,
+  moves: number[],
+  random: () => number = Math.random,
+): ComputerTurnPlan | null {
+  if (isTerminal(moves)) return null;
+  if (role === "easy") {
+    const col = easyMove(moves, random);
+    return col === null ? null : { type: "local", col };
+  }
+  if (role === "medium") {
+    const forced = forcedWinOrBlock(moves);
+    if (forced !== null) return { type: "local", col: forced };
+  }
+  return { type: "engine" };
+}
+
+/**
+ * Turn an engine reply into the column to play. Medium keeps its score-based
+ * and fallback selection; Perfect keeps the engine column. An out-of-range
+ * column falls back to Easy.
+ */
+export function chooseAfterEngine(
+  role: ComputerRole,
+  moves: number[],
+  engineCol: number,
+  scores: number[],
+  random: () => number = Math.random,
+): number | null {
+  let col = engineCol;
+  if (role === "medium") col = pickMedium(moves, engineCol, scores, random) ?? engineCol;
+  if (!legalEngineColumn(col)) col = easyMove(moves, random) ?? col;
+  return legalEngineColumn(col) ? col : null;
 }
 
 export function analysisComplete(scores: number[], heights: number[]): boolean {
