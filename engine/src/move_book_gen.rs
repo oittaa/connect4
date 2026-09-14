@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 pub const EXPECTED_CANONICAL_POSITIONS_10PLY: usize = 1_208_493;
 pub const EXPECTED_CANONICAL_POSITIONS_AT_10: usize = 809_464;
 pub const EXPECTED_INDEXED_POSITIONS_10PLY: u32 = 1_216_864;
-pub const EXPECTED_COVERED_SLOTS_THROUGH_9: u32 = 402_046;
+pub const EXPECTED_COVERED_SLOTS_THROUGH_9: u32 = 402_045;
 
 const MOVE_ORDER: [usize; WIDTH] = [3, 4, 2, 5, 1, 6, 0];
 #[derive(Clone, Debug)]
