@@ -17,6 +17,7 @@ works immediately; computer seats and analysis wait on the engine.
 # solver tests + CLI
 cargo test -p engine
 cargo run --release -p engine -- bench testdata/end_easy
+cargo run --release -p engine --example book_frontier -- 3
 cargo run --release -p engine -- empty --book books/2ply.c4book
 
 # web (needs rustup target wasm32-unknown-unknown and wasm-bindgen-cli)
@@ -25,6 +26,13 @@ cd web && npm install && npm run build
 ```
 
 Static output is `web/dist/`, ready to copy to `/connect4/`.
+
+The `book_frontier` example measures choosing moves just beyond the embedded
+4-ply and downloaded 8-ply books, with a fresh search cache and the browser's
+24 MiB table size. Its CSV output includes the move, node count, and search time.
+Computer move selection uses the known parent score to test candidates with a
+single null-window search. **Show best moves** still requests full column scores
+before the computer moves; this optimization does not shorten that analysis wait.
 
 ## Engine
 
