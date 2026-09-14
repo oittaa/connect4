@@ -21,19 +21,19 @@ function ready(id: number, extra: Partial<Extract<WorkerRes, { type: "ready" }>>
   return {
     id,
     type: "ready",
-    bookLen: 4,
-    bookDepth: 4,
+    scoreBookLen: 4,
+    scoreBookMoves: 4,
     moveBookPopulated: 0,
-    moveBookDepth: 0,
+    moveBookMoves: 0,
     ...extra,
   };
 }
 
-const ply8 = { bookLen: 129_498, bookDepth: 8, moveBookPopulated: 0, moveBookDepth: 0 };
-const move9 = { bookLen: 129_498, bookDepth: 8, moveBookPopulated: 402_045, moveBookDepth: 9 };
+const ply8 = { scoreBookLen: 129_498, scoreBookMoves: 8, moveBookPopulated: 0, moveBookMoves: 0 };
+const move10 = { scoreBookLen: 129_498, scoreBookMoves: 8, moveBookPopulated: 402_045, moveBookMoves: 10 };
 
 type Session = {
-  bookOn: boolean;
+  downloadedBooksEnabled: boolean;
   generation: number;
   retainedScoreBook: ArrayBuffer | null;
   retainedMoveBook: ArrayBuffer | null;
@@ -42,10 +42,10 @@ type Session = {
 
 function hostFor(session: Session): BookRestoreHost {
   return {
-    bookOn: () => session.bookOn,
+    downloadedBooksEnabled: () => session.downloadedBooksEnabled,
     generation: () => session.generation,
-    retainedScore: () => session.retainedScoreBook,
-    retainedMove: () => session.retainedMoveBook,
+    retainedScoreBook: () => session.retainedScoreBook,
+    retainedMoveBook: () => session.retainedMoveBook,
     report(r) {
       if (r) session.applied.push(r);
     },
@@ -56,14 +56,14 @@ function hostFor(session: Session): BookRestoreHost {
 }
 
 function turnOff(session: Session): void {
-  session.bookOn = false;
+  session.downloadedBooksEnabled = false;
   session.retainedScoreBook = null;
   session.retainedMoveBook = null;
   session.generation++;
 }
 
 function turnOn(session: Session): void {
-  session.bookOn = true;
+  session.downloadedBooksEnabled = true;
 }
 
 type Pending = { msg: EngineRequest; resolve: (r: WorkerRes) => void };
@@ -95,7 +95,7 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
 
 {
   const session: Session = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     generation: 1,
     retainedScoreBook: new ArrayBuffer(8),
     retainedMoveBook: new ArrayBuffer(8),
@@ -112,9 +112,9 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
 
   same(types(client.posted), ["loadScoreBook", "clearDownloadedBooks"], "Off during restore clears the 8-ply load");
   const last = session.applied[session.applied.length - 1];
-  assert(last?.type === "ready" && last.bookDepth === 4, "applied book state is the clear, not 8-ply");
+  assert(last?.type === "ready" && last.scoreBookMoves === 4, "applied book state is the clear, not 8-ply");
   assert(
-    !session.applied.some((r) => r.type === "ready" && r.bookDepth === 8 && r.bookLen === ply8.bookLen),
+    !session.applied.some((r) => r.type === "ready" && r.scoreBookMoves === 8 && r.scoreBookLen === ply8.scoreBookLen),
     "superseded 8-ply ready is not applied",
   );
   assert(!shouldDownloadBooks(session), "Off does not restart downloads");
@@ -122,7 +122,7 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
 
 {
   const session: Session = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     generation: 1,
     retainedScoreBook: new ArrayBuffer(8),
     retainedMoveBook: new ArrayBuffer(8),
@@ -131,7 +131,7 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
   turnOff(session);
   turnOn(session);
   assert(session.retainedScoreBook === null && session.retainedMoveBook === null, "Off clears retained bytes");
-  assert(session.bookOn, "On is the latest preference");
+  assert(session.downloadedBooksEnabled, "On is the latest preference");
   assert(shouldDownloadBooks(session), "On without retained bytes needs a download");
 
   const client = deferredClient();
@@ -142,7 +142,7 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
 
 {
   const session: Session = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     generation: 1,
     retainedScoreBook: new ArrayBuffer(8),
     retainedMoveBook: new ArrayBuffer(8),
@@ -154,45 +154,45 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
   client.release("loadScoreBook", ready(2, ply8));
   await Promise.resolve();
   same(types(client.posted), ["loadScoreBook", "loadMoveBook"], "both retained books load when the toggle stays on");
-  client.release("loadMoveBook", ready(3, move9));
+  client.release("loadMoveBook", ready(3, move10));
   await done;
-  assert(session.applied.some((r) => r.type === "ready" && r.moveBookPopulated === move9.moveBookPopulated), "move book applied");
+  assert(session.applied.some((r) => r.type === "ready" && r.moveBookPopulated === move10.moveBookPopulated), "move book applied");
   assert(!shouldDownloadBooks(session), "retained bytes still present, no refetch");
 }
 
 {
   const timedOut = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     retainedScoreBook: new ArrayBuffer(8),
     retainedMoveBook: null as ArrayBuffer | null,
-    scoreAttempted: true,
-    moveAttempted: true,
-    scoreInFlight: false,
-    moveInFlight: false,
+    scoreBookAttempted: true,
+    moveBookAttempted: true,
+    scoreBookInFlight: false,
+    moveBookInFlight: false,
   };
   assert(shouldStartBookDownload("score", timedOut) === false, "successful score book is not re-fetched");
   assert(shouldStartBookDownload("move", timedOut) === false, "timed-out move book is not auto-retried");
   assert(!shouldDownloadBooks(timedOut), "afterReady does not restart a timed-out attempt");
 
   const inFlight = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     retainedScoreBook: null as ArrayBuffer | null,
     retainedMoveBook: null as ArrayBuffer | null,
-    scoreAttempted: true,
-    moveAttempted: true,
-    scoreInFlight: true,
-    moveInFlight: true,
+    scoreBookAttempted: true,
+    moveBookAttempted: true,
+    scoreBookInFlight: true,
+    moveBookInFlight: true,
   };
   assert(!shouldDownloadBooks(inFlight), "replacement does not start a second fetch while one is in flight");
 
   const offThenOn = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     retainedScoreBook: null as ArrayBuffer | null,
     retainedMoveBook: null as ArrayBuffer | null,
-    scoreAttempted: false,
-    moveAttempted: false,
-    scoreInFlight: false,
-    moveInFlight: false,
+    scoreBookAttempted: false,
+    moveBookAttempted: false,
+    scoreBookInFlight: false,
+    moveBookInFlight: false,
   };
   assert(shouldDownloadBooks(offThenOn), "Off then On retries both books");
 }

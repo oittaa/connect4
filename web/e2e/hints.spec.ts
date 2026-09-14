@@ -23,7 +23,7 @@ async function openApp(page: Page, moves = ""): Promise<void> {
   });
   await page.goto(`/connect4/#moves=${moves}&DEBUG`);
   await expect(page.locator("#engine-line")).toHaveText(/Solver ready/i, { timeout: 60_000 });
-  await expect(page.locator("#book-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
   await page.locator("#delay").evaluate((el) => {
     const input = el as HTMLInputElement;
     input.value = "1500";
@@ -48,6 +48,17 @@ async function expectScores(page: Page): Promise<void> {
   await expect(page.locator("#scores span").first()).toHaveText(/^(W\d+|L\d+|D)$/);
   await expect(page.locator("#board .best-col").first()).toBeVisible();
 }
+
+test("book labels count moves supplied and reset after unloading", async ({ page }) => {
+  await openApp(page);
+  const books = page.locator("#books-line");
+  await expect(books).toContainText(/Score book .*\(through move 8\)/);
+  await expect(books).toContainText(/move book .*\(through move 10\)/);
+  await expect(books).not.toContainText("depth");
+  await page.locator("#books").uncheck();
+  await expect(books).toContainText(/Score book .*\(through move 4\)/);
+  await expect(books).toContainText("move book not loaded");
+});
 
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
   test(`board stays fixed through hints and human/computer turns at ${viewport.width}px`, async ({ page }) => {
@@ -79,7 +90,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
 }
 
 for (const role of ["easy", "medium", "perfect"]) {
-  test(`${role} vs ${role} shows book scores on both turns without full analysis`, async ({ page }) => {
+  test(`${role} vs ${role} shows score-book scores on both turns without full analysis`, async ({ page }) => {
     await openApp(page);
     await setRole(page, 1, role);
     await setRole(page, 0, role);
@@ -159,7 +170,7 @@ test("partial computer hints do not suppress full analysis after switching to Hu
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
 });
 
-test("missing frontier ranks stay hidden without delaying the compact-book move", async ({ page }) => {
+test("missing frontier ranks stay hidden without delaying the move-book move", async ({ page }) => {
   await openApp(page, "44444222");
   const box = await boardBox(page);
   await setRole(page, 1, "perfect");
@@ -173,7 +184,7 @@ test("missing frontier ranks stay hidden without delaying the compact-book move"
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
 });
 
-test("a late book-score reply cannot restore hints after switching them off", async ({ page }) => {
+test("a late score-book reply cannot restore hints after switching them off", async ({ page }) => {
   await openApp(page);
   await setRole(page, 0, "perfect");
   await page.evaluate(() => { (window as any).hintTest.hold = true; });

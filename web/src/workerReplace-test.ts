@@ -21,10 +21,10 @@ function ready(id: number, extra: Partial<Extract<WorkerRes, { type: "ready" }>>
   return {
     id,
     type: "ready",
-    bookLen: 8,
-    bookDepth: 8,
+    scoreBookLen: 8,
+    scoreBookMoves: 8,
     moveBookPopulated: 12,
-    moveBookDepth: 8,
+    moveBookMoves: 10,
     ...extra,
   };
 }
@@ -98,7 +98,7 @@ function mockWorkers(opts: { holdScoreLoad?: boolean } = {}): { spawn: () => Spa
           pendingScore = null;
           worker.pendingScore = null;
           port.onmessage?.({
-            data: ready(id, { bookLen: 129_498, bookDepth: 8, moveBookPopulated: 0, moveBookDepth: 0 }),
+            data: ready(id, { scoreBookLen: 129_498, scoreBookMoves: 8, moveBookPopulated: 0, moveBookMoves: 0 }),
           });
         },
       };
@@ -164,8 +164,8 @@ function harness(replan: "session" | "none" = "session") {
       order.push("fail");
     },
     isEngineFailed: () => false,
-    bookOn: () => true,
-    bookGeneration: () => 1,
+    downloadedBooksEnabled: () => true,
+    booksGeneration: () => 1,
   };
   box.ctrl = createWorkerReplace(host);
   return { mocks, session, order, readySnapshots, ctrl: box.ctrl };
@@ -253,17 +253,17 @@ const afterBack = inflight.slice(0, -1);
 {
   const mocks = mockWorkers({ holdScoreLoad: true });
   const books = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     generation: 1,
     retainedScoreBook: new ArrayBuffer(8) as ArrayBuffer | null,
     retainedMoveBook: new ArrayBuffer(8) as ArrayBuffer | null,
   };
   let downloadAfterReady = false;
   const bookHost: BookRestoreHost = {
-    bookOn: () => books.bookOn,
+    downloadedBooksEnabled: () => books.downloadedBooksEnabled,
     generation: () => books.generation,
-    retainedScore: () => books.retainedScoreBook,
-    retainedMove: () => books.retainedMoveBook,
+    retainedScoreBook: () => books.retainedScoreBook,
+    retainedMoveBook: () => books.retainedMoveBook,
     report() {},
     loaded() {},
   };
@@ -277,8 +277,8 @@ const afterBack = inflight.slice(0, -1);
     },
     onInitFailure() {},
     isEngineFailed: () => false,
-    bookOn: () => books.bookOn,
-    bookGeneration: () => books.generation,
+    downloadedBooksEnabled: () => books.downloadedBooksEnabled,
+    booksGeneration: () => books.generation,
   });
   void ctrl.send({ type: "analyze", moves: inflight.slice() });
   await microtasks();
@@ -287,7 +287,7 @@ const afterBack = inflight.slice(0, -1);
   mocks.workers[1].releaseInit();
   await microtasks(10);
   assert(mocks.workers[1].pendingScore !== null, "score-book restore is pending");
-  books.bookOn = false;
+  books.downloadedBooksEnabled = false;
   books.retainedScoreBook = null;
   books.retainedMoveBook = null;
   books.generation++;
@@ -305,17 +305,17 @@ const afterBack = inflight.slice(0, -1);
 {
   const mocks = mockWorkers();
   const books = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     generation: 1,
     retainedScoreBook: new ArrayBuffer(8) as ArrayBuffer | null,
     retainedMoveBook: new ArrayBuffer(8) as ArrayBuffer | null,
   };
   let downloadAfterReady = false;
   const bookHost: BookRestoreHost = {
-    bookOn: () => books.bookOn,
+    downloadedBooksEnabled: () => books.downloadedBooksEnabled,
     generation: () => books.generation,
-    retainedScore: () => books.retainedScoreBook,
-    retainedMove: () => books.retainedMoveBook,
+    retainedScoreBook: () => books.retainedScoreBook,
+    retainedMoveBook: () => books.retainedMoveBook,
     report() {},
     loaded() {},
   };
@@ -329,19 +329,19 @@ const afterBack = inflight.slice(0, -1);
     },
     onInitFailure() {},
     isEngineFailed: () => false,
-    bookOn: () => books.bookOn,
-    bookGeneration: () => books.generation,
+    downloadedBooksEnabled: () => books.downloadedBooksEnabled,
+    booksGeneration: () => books.generation,
   });
   void ctrl.send({ type: "analyze", moves: inflight.slice() });
   await microtasks();
   const next = ctrl.send({ type: "analyze", moves: [] });
   await microtasks();
   assert(mocks.workers[1].pendingInit !== null, "init held for Off then On");
-  books.bookOn = false;
+  books.downloadedBooksEnabled = false;
   books.retainedScoreBook = null;
   books.retainedMoveBook = null;
   books.generation++;
-  books.bookOn = true;
+  books.downloadedBooksEnabled = true;
   mocks.workers[1].releaseInit();
   await next;
   await microtasks(10);
@@ -356,16 +356,16 @@ const afterBack = inflight.slice(0, -1);
 {
   const mocks = mockWorkers();
   const books = {
-    bookOn: true,
+    downloadedBooksEnabled: true,
     generation: 1,
     retainedScoreBook: null as ArrayBuffer | null,
     retainedMoveBook: null as ArrayBuffer | null,
   };
   const bookHost: BookRestoreHost = {
-    bookOn: () => books.bookOn,
+    downloadedBooksEnabled: () => books.downloadedBooksEnabled,
     generation: () => books.generation,
-    retainedScore: () => books.retainedScoreBook,
-    retainedMove: () => books.retainedMoveBook,
+    retainedScoreBook: () => books.retainedScoreBook,
+    retainedMoveBook: () => books.retainedMoveBook,
     report() {},
     loaded() {},
   };
@@ -377,8 +377,8 @@ const afterBack = inflight.slice(0, -1);
     afterReady() {},
     onInitFailure() {},
     isEngineFailed: () => false,
-    bookOn: () => books.bookOn,
-    bookGeneration: () => books.generation,
+    downloadedBooksEnabled: () => books.downloadedBooksEnabled,
+    booksGeneration: () => books.generation,
   });
   void ctrl.send({ type: "analyze", moves: inflight.slice() });
   await microtasks();
@@ -393,7 +393,7 @@ const afterBack = inflight.slice(0, -1);
     "finished download waits for replacement before loadScoreBook",
   );
 
-  books.bookOn = false;
+  books.downloadedBooksEnabled = false;
   books.generation++;
   mocks.workers[1].releaseInit();
   const delayedReply = await delayed;

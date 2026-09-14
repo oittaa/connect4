@@ -27,10 +27,10 @@ export type WorkerRes =
   | {
       id: number;
       type: "ready";
-      bookLen: number;
-      bookDepth: number;
+      scoreBookLen: number;
+      scoreBookMoves: number;
       moveBookPopulated: number;
-      moveBookDepth: number;
+      moveBookMoves: number;
     }
   | {
       id: number;

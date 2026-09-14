@@ -1,6 +1,6 @@
-//! Exact scores from completed solves, distinct from the opening book and TT.
+//! Exact scores from completed solves, distinct from the score book and TT.
 //!
-//! - Book: dense, shallow, depth-gated binary search (`key3`).
+//! - Score book: dense, shallow, depth-gated binary search (`key3`).
 //! - TT: bounds, always-replace, session-only.
 //! - This table: sparse exact scores at any depth, O(1) in search, persisted
 //!   as one blob. Uses the 49-bit canonical bitboard key (`key3` only fits in

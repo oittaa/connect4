@@ -43,16 +43,16 @@ let computerHintGeneration = 0;
 let thinking = false;
 let engineReady = false;
 let engineFailed = false;
-let bookOn = true;
-let bookGeneration = 0;
-let bookState: Extract<WorkerRes, { type: "ready" }> | null = null;
+let downloadedBooksEnabled = true;
+let booksGeneration = 0;
+let booksState: Extract<WorkerRes, { type: "ready" }> | null = null;
 let bookDownloads = { score: "", move: "" };
 let retainedScoreBook: ArrayBuffer | null = null;
 let retainedMoveBook: ArrayBuffer | null = null;
-let scoreDownload: AbortController | null = null;
-let moveDownload: AbortController | null = null;
-let scoreAttempted = false;
-let moveAttempted = false;
+let scoreBookDownload: AbortController | null = null;
+let moveBookDownload: AbortController | null = null;
+let scoreBookAttempted = false;
+let moveBookAttempted = false;
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
@@ -61,14 +61,14 @@ const boardEl = document.getElementById("board")!;
 const scoresEl = document.getElementById("scores")!;
 const statusEl = document.getElementById("status")!;
 const engineLine = document.getElementById("engine-line")!;
-const bookLine = document.getElementById("book-line")!;
+const booksLine = document.getElementById("books-line")!;
 const engineDiagnostics = document.getElementById("engine-diagnostics")!;
 const backBtn = document.getElementById("back") as HTMLButtonElement;
 const fwdBtn = document.getElementById("forward") as HTMLButtonElement;
 const newBtn = document.getElementById("new") as HTMLButtonElement;
 const analyzeChk = document.getElementById("analyze") as HTMLInputElement;
-const bookChk = document.getElementById("book") as HTMLInputElement;
-const openingBookOption = document.getElementById("opening-book-option")!;
+const booksToggle = document.getElementById("books") as HTMLInputElement;
+const downloadedBooksOption = document.getElementById("downloaded-books-option")!;
 const delay = document.getElementById("delay") as HTMLInputElement;
 const delayLabel = document.getElementById("delay-label")!;
 const pauseBtn = document.getElementById("pause") as HTMLButtonElement;
@@ -83,7 +83,7 @@ const solverReload = document.getElementById("solver-reload") as HTMLButtonEleme
 const SOLVER_FAILURE_TEXT = "The solver failed. Reload to try again.";
 
 function syncDebugControls(): void {
-  openingBookOption.hidden = !isDebugMode();
+  downloadedBooksOption.hidden = !isDebugMode();
   engineDiagnostics.hidden = !isDebugMode();
 }
 
@@ -117,31 +117,31 @@ function initTimeoutMs(): number {
   return new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs;
 }
 
-function bookRestoreHost() {
+function booksRestoreHost() {
   return {
-    bookOn: () => bookOn,
-    generation: () => bookGeneration,
-    retainedScore: () => retainedScoreBook,
-    retainedMove: () => retainedMoveBook,
-    report: reportBook,
+    downloadedBooksEnabled: () => downloadedBooksEnabled,
+    generation: () => booksGeneration,
+    retainedScoreBook: () => retainedScoreBook,
+    retainedMoveBook: () => retainedMoveBook,
+    report: reportBooks,
     loaded(kind: "score" | "move" | "clear", r: WorkerRes) {
       if (kind === "score") bookDownloads.score = r.type === "error" ? r.message : "";
       if (kind === "move") bookDownloads.move = r.type === "error" ? r.message : "";
       if (kind === "clear") bookDownloads = { score: "", move: "" };
-      reportBook(r);
+      reportBooks(r);
     },
   };
 }
 
-function bookSnapshot() {
+function booksSnapshot() {
   return {
-    bookOn,
+    downloadedBooksEnabled,
     retainedScoreBook,
     retainedMoveBook,
-    scoreAttempted,
-    moveAttempted,
-    scoreInFlight: scoreDownload !== null,
-    moveInFlight: moveDownload !== null,
+    scoreBookAttempted,
+    moveBookAttempted,
+    scoreBookInFlight: scoreBookDownload !== null,
+    moveBookInFlight: moveBookDownload !== null,
   };
 }
 
@@ -167,12 +167,12 @@ const workerSession = createWorkerReplace({
   onReplaceStart() {
     engineReady = false;
   },
-  restoreBooks: (client, ready) => restoreRetainedBooks(client, ready, bookRestoreHost()),
+  restoreBooks: (client, ready) => restoreRetainedBooks(client, ready, booksRestoreHost()),
   afterReady: onReplacementReady,
   onInitFailure: declareSolverFailed,
   isEngineFailed: () => engineFailed,
-  bookOn: () => bookOn,
-  bookGeneration: () => bookGeneration,
+  downloadedBooksEnabled: () => downloadedBooksEnabled,
+  booksGeneration: () => booksGeneration,
 });
 
 function send(msg: EngineRequest): Promise<WorkerRes> {
@@ -487,10 +487,10 @@ function reportEngine(
     return;
   }
   if (nodes === 0 && !timedOut) {
-    engineLine.textContent = "instant (opening / book)";
+    engineLine.textContent = "instant (score book / tactical)";
     return;
   }
-  const src = bookOn ? "search" : "search (embedded book only)";
+  const src = downloadedBooksEnabled ? "search" : "search (embedded score book only)";
   engineLine.textContent = timedOut
     ? `Timed out after ${ms.toFixed(0)} ms · ${nodes.toLocaleString()} nodes (result not proven)`
     : `${src}: ${nodes.toLocaleString()} nodes in ${ms < 10 ? ms.toFixed(1) : ms.toFixed(0)} ms` +
@@ -530,20 +530,20 @@ analyzeChk.addEventListener("change", () => {
   }
 });
 
-bookChk.addEventListener("change", () => {
-  bookOn = bookChk.checked;
-  if (!bookOn) {
+booksToggle.addEventListener("change", () => {
+  downloadedBooksEnabled = booksToggle.checked;
+  if (!downloadedBooksEnabled) {
     retainedScoreBook = null;
     retainedMoveBook = null;
-    const generation = ++bookGeneration;
-    scoreAttempted = false;
-    moveAttempted = false;
+    const generation = ++booksGeneration;
+    scoreBookAttempted = false;
+    moveBookAttempted = false;
     abortBookDownloads();
     bookDownloads = { score: "", move: "" };
-    reportBook();
+    reportBooks();
     if (!engineReady || engineFailed) return;
     void send({ type: "clearDownloadedBooks" }).then((r) => {
-      if (generation === bookGeneration) reportBook(r);
+      if (generation === booksGeneration) reportBooks(r);
     });
     return;
   }
@@ -596,15 +596,15 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowRight") fwdBtn.click();
 });
 
-function reportBook(r?: WorkerRes): void {
-  if (r?.type === "ready") bookState = r;
-  if (!bookState) return;
+function reportBooks(r?: WorkerRes): void {
+  if (r?.type === "ready") booksState = r;
+  if (!booksState) return;
   const move =
-    bookState.moveBookPopulated > 0
-      ? `move book ${bookState.moveBookPopulated.toLocaleString()} moves (depth ${bookState.moveBookDepth})`
+    booksState.moveBookPopulated > 0
+      ? `move book ${booksState.moveBookPopulated.toLocaleString()} moves (through move ${booksState.moveBookMoves})`
       : "move book not loaded";
-  bookLine.textContent = [
-    `Score book ${bookState.bookLen.toLocaleString()} positions (depth ${bookState.bookDepth})`,
+  booksLine.textContent = [
+    `Score book ${booksState.scoreBookLen.toLocaleString()} positions (through move ${booksState.scoreBookMoves})`,
     move,
     bookDownloads.score,
     bookDownloads.move,
@@ -612,10 +612,10 @@ function reportBook(r?: WorkerRes): void {
 }
 
 function abortBookDownloads(): void {
-  scoreDownload?.abort();
-  moveDownload?.abort();
-  scoreDownload = null;
-  moveDownload = null;
+  scoreBookDownload?.abort();
+  moveBookDownload?.abort();
+  scoreBookDownload = null;
+  moveBookDownload = null;
 }
 
 function startBookDownload(kind: "score" | "move", generation: number): void {
@@ -625,48 +625,48 @@ function startBookDownload(kind: "score" | "move", generation: number): void {
       ? { path: "books/opening.c4book", label: "Score book" as const, load: "loadScoreBook" as const }
       : { path: "books/opening.c4move", label: "Move book" as const, load: "loadMoveBook" as const };
   if (kind === "score") {
-    scoreDownload = ac;
-    scoreAttempted = true;
+    scoreBookDownload = ac;
+    scoreBookAttempted = true;
     bookDownloads.score = "Downloading score book…";
   } else {
-    moveDownload = ac;
-    moveAttempted = true;
+    moveBookDownload = ac;
+    moveBookAttempted = true;
     bookDownloads.move = "Downloading move book…";
   }
-  reportBook();
+  reportBooks();
   void (async () => {
     try {
       const bytes = await fetchBookWithDeadline(new URL(asset.path, document.baseURI).href, {
         label: asset.label,
         signal: ac.signal,
       });
-      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      if (generation !== booksGeneration || !downloadedBooksEnabled || engineFailed) return;
       if (kind === "score") retainedScoreBook = bytes.slice(0);
       else retainedMoveBook = bytes.slice(0);
       const r = await send({ type: asset.load, bytes: bytes.slice(0) });
-      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      if (generation !== booksGeneration || !downloadedBooksEnabled || engineFailed) return;
       if (isWorkerReplaced(r)) return;
       if (kind === "score") bookDownloads.score = r.type === "error" ? r.message : "";
       else bookDownloads.move = r.type === "error" ? r.message : "";
-      reportBook(r);
+      reportBooks(r);
       if (kind === "score" && r.type === "ready") void requestAvailableScores();
     } catch (e) {
-      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      if (generation !== booksGeneration || !downloadedBooksEnabled || engineFailed) return;
       if (isAbortError(e)) return;
       if (kind === "score") bookDownloads.score = e instanceof Error ? e.message : String(e);
       else bookDownloads.move = e instanceof Error ? e.message : String(e);
-      reportBook();
+      reportBooks();
     } finally {
       if (kind === "score") {
-        if (scoreDownload === ac) scoreDownload = null;
-      } else if (moveDownload === ac) moveDownload = null;
+        if (scoreBookDownload === ac) scoreBookDownload = null;
+      } else if (moveBookDownload === ac) moveBookDownload = null;
     }
   })();
 }
 
 /** User On: new attempts for both books. Aborts any previous fetch as cancellation, not a timeout. */
 function loadDownloadedBooks(): void {
-  const generation = ++bookGeneration;
+  const generation = ++booksGeneration;
   abortBookDownloads();
   startBookDownload("score", generation);
   startBookDownload("move", generation);
@@ -677,10 +677,10 @@ function loadDownloadedBooks(): void {
  * attempted. Does not bump generation or abort an in-flight fetch.
  */
 function resumeBookDownloads(): void {
-  if (!bookOn || engineFailed) return;
-  const state = bookSnapshot();
-  if (shouldStartBookDownload("score", state)) startBookDownload("score", bookGeneration);
-  if (shouldStartBookDownload("move", state)) startBookDownload("move", bookGeneration);
+  if (!downloadedBooksEnabled || engineFailed) return;
+  const state = booksSnapshot();
+  if (shouldStartBookDownload("score", state)) startBookDownload("score", booksGeneration);
+  if (shouldStartBookDownload("move", state)) startBookDownload("move", booksGeneration);
 }
 
 function onReady(r: WorkerRes): void {
@@ -692,7 +692,7 @@ function onReady(r: WorkerRes): void {
   if (engineFailed) return;
   engineReady = true;
   if (!gameOver()) engineLine.textContent = "Solver ready.";
-  reportBook(r);
+  reportBooks(r);
   applyHintComputer("engineReady", false);
   resumeBookDownloads();
 }
