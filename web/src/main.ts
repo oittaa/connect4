@@ -17,7 +17,8 @@ import {
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
-import type { WorkerReq, WorkerRes } from "./engineProtocol";
+import { createEngineClient } from "./engineClient";
+import type { WorkerRes } from "./engineProtocol";
 
 const history: number[] = [];
 let cursor = 0;
@@ -34,8 +35,6 @@ let bookDownloads = { score: "", move: "" };
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
-let reqId = 1;
-const pending = new Map<number, (r: WorkerRes) => void>();
 
 const boardEl = document.getElementById("board")!;
 const scoresEl = document.getElementById("scores")!;
@@ -69,24 +68,7 @@ const mobile = matchMedia("(max-width: 700px), (pointer: coarse)").matches;
 const timeoutMs = mobile ? 6_000 : 12_000;
 
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-worker.onmessage = (ev: MessageEvent<WorkerRes>) => {
-  const r = ev.data;
-  const fn = pending.get(r.id);
-  if (fn) {
-    pending.delete(r.id);
-    fn(r);
-  }
-};
-
-type OmitId<T> = T extends unknown ? Omit<T, "id"> : never;
-
-function send(msg: OmitId<WorkerReq>): Promise<WorkerRes> {
-  const id = reqId++;
-  return new Promise((resolve) => {
-    pending.set(id, resolve);
-    worker.postMessage({ ...msg, id } as WorkerReq);
-  });
-}
+const { request: send } = createEngineClient(worker);
 
 function played(): number[] {
   return history.slice(0, cursor);
@@ -105,6 +87,24 @@ function hasComputer(): boolean {
   return roles.some((role) => role !== "human");
 }
 
+function initBoard(): void {
+  for (let c = 0; c < WIDTH; c++) {
+    const col = document.createElement("button");
+    col.type = "button";
+    col.className = "col";
+    col.dataset.col = String(c);
+    col.setAttribute("aria-label", `Column ${c + 1}`);
+    for (let r = HEIGHT - 1; r >= 0; r--) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.dataset.row = String(r);
+      col.appendChild(cell);
+    }
+    col.addEventListener("click", () => tryDrop(c));
+    boardEl.appendChild(col);
+  }
+}
+
 function renderBoard(animateLast: boolean): void {
   const m = played();
   const g = playMoves(m);
@@ -112,24 +112,6 @@ function renderBoard(animateLast: boolean): void {
   const winSet = new Set((win ?? []).map(([r, c]) => `${r},${c}`));
   const proven = !!(analysisScores && analysisComplete(analysisScores, g.height));
   const best = proven && analyzeChk.checked && analysisScores ? bestCols(analysisScores) : [];
-
-  if (!boardEl.childElementCount) {
-    for (let c = 0; c < WIDTH; c++) {
-      const col = document.createElement("button");
-      col.type = "button";
-      col.className = "col";
-      col.dataset.col = String(c);
-      col.setAttribute("aria-label", `Column ${c + 1}`);
-      for (let r = HEIGHT - 1; r >= 0; r--) {
-        const cell = document.createElement("div");
-        cell.className = "cell";
-        cell.dataset.row = String(r);
-        col.appendChild(cell);
-      }
-      col.addEventListener("click", () => tryDrop(c));
-      boardEl.appendChild(col);
-    }
-  }
 
   const over = gameOver();
   if (over) engineLine.textContent = "Game over.";
@@ -227,11 +209,15 @@ function applyMove(col: number): void {
   history.push(col);
   lastDropIndex = cursor;
   cursor++;
+  positionChanged(true);
+}
+
+function positionChanged(animateLast: boolean): void {
   analysisScores = null;
   analysisGeneration++;
   analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
-  renderBoard(true);
+  renderBoard(animateLast);
   afterChange();
 }
 
@@ -361,12 +347,7 @@ backBtn.addEventListener("click", () => {
   if (hasComputer()) paused = true;
   cancelComputerMove();
   cursor--;
-  analysisScores = null;
-  analysisGeneration++;
-  analyzing = analyzeChk.checked && engineReady && !gameOver();
-  writeMovesToLocation(played());
-  renderBoard(false);
-  afterChange();
+  positionChanged(false);
 });
 
 fwdBtn.addEventListener("click", () => {
@@ -374,24 +355,14 @@ fwdBtn.addEventListener("click", () => {
   cancelComputerMove();
   lastDropIndex = cursor;
   cursor++;
-  analysisScores = null;
-  analysisGeneration++;
-  analyzing = analyzeChk.checked && engineReady && !gameOver();
-  writeMovesToLocation(played());
-  renderBoard(true);
-  afterChange();
+  positionChanged(true);
 });
 
 newBtn.addEventListener("click", () => {
   cancelComputerMove();
   history.length = 0;
   cursor = 0;
-  analysisScores = null;
-  analysisGeneration++;
-  analyzing = analyzeChk.checked && engineReady && !gameOver();
-  writeMovesToLocation([]);
-  renderBoard(false);
-  afterChange();
+  positionChanged(false);
 });
 
 analyzeChk.addEventListener("change", () => {
@@ -510,6 +481,8 @@ function onReady(r: WorkerRes): void {
   afterChange();
   if (bookOn) loadDownloadedBooks();
 }
+
+initBoard();
 
 const fromUrl = readMovesFromLocation();
 if (fromUrl) {

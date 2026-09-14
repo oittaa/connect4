@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/game.medium-test.ts"
+    "test": "node src/game.medium-test.ts && node src/engineClient-test.ts"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
