@@ -14,11 +14,28 @@ export type BookDownloadState = {
   bookOn: boolean;
   retainedScoreBook: ArrayBuffer | null;
   retainedMoveBook: ArrayBuffer | null;
+  scoreAttempted?: boolean;
+  moveAttempted?: boolean;
+  scoreInFlight?: boolean;
+  moveInFlight?: boolean;
 };
 
-/** After replacement, fetch only when the toggle is on and retained bytes are missing. */
+/** Start a book fetch only when On, bytes are missing, and this attempt is not already done or running. */
+export function shouldStartBookDownload(kind: "score" | "move", state: BookDownloadState): boolean {
+  if (!state.bookOn) return false;
+  const retained = kind === "score" ? state.retainedScoreBook : state.retainedMoveBook;
+  const inFlight = kind === "score" ? state.scoreInFlight : state.moveInFlight;
+  const attempted = kind === "score" ? state.scoreAttempted : state.moveAttempted;
+  return !retained && !inFlight && !attempted;
+}
+
+/**
+ * After replacement, resume a fetch only for a missing book that has not already
+ * been attempted this On period. In-flight fetches keep running; a timeout does
+ * not start an automatic retry.
+ */
 export function shouldDownloadBooks(state: BookDownloadState): boolean {
-  return state.bookOn && (!state.retainedScoreBook || !state.retainedMoveBook);
+  return shouldStartBookDownload("score", state) || shouldStartBookDownload("move", state);
 }
 
 /**
