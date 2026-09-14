@@ -2,18 +2,24 @@ import {
   AREA,
   HEIGHT,
   WIDTH,
+  analysisReplyApplies,
   analysisScoreClass,
   chooseAfterEngine,
   formatScore,
   isDraw,
   lastMoveWin,
   planComputerTurn,
+  planHintAndComputer,
   playMoves,
   provenBestColumns,
+  shouldRequestAnalysis,
+  shouldShowHintDisplay,
   statusText,
   toMove,
   type ComputerRole,
   type ComputerTurnPlan,
+  type HintSessionContext,
+  type HintSessionEvent,
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
@@ -110,11 +116,12 @@ function renderBoard(animateLast: boolean): void {
   const g = playMoves(m);
   const win = lastMoveWin(m);
   const winSet = new Set((win ?? []).map(([r, c]) => `${r},${c}`));
-  const best = analyzeChk.checked
+  const over = gameOver();
+  const showHints = shouldShowHintDisplay(analyzeChk.checked, over, paused, currentRole());
+  const best = showHints
     ? provenBestColumns(analysis?.scores ?? null, g.height, analysis?.timedOut ?? false)
     : [];
 
-  const over = gameOver();
   if (over) engineLine.textContent = "Game over.";
   gameStage.dataset.player = String(win ? 3 - toMove(m) : toMove(m));
   moveCount.textContent = over ? `${cursor} moves` : `Move ${cursor + 1}`;
@@ -158,7 +165,7 @@ function renderBoard(animateLast: boolean): void {
     });
   });
 
-  if (!over && analyzeChk.checked && analyzing) {
+  if (showHints && analyzing) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
     for (let i = 0; i < WIDTH; i++) {
@@ -166,7 +173,7 @@ function renderBoard(animateLast: boolean): void {
       span.textContent = "…";
       scoresEl.appendChild(span);
     }
-  } else if (!over && analyzeChk.checked && analysis) {
+  } else if (showHints && analysis) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
     analysis.scores.forEach((s, i) => {
@@ -183,7 +190,7 @@ function renderBoard(animateLast: boolean): void {
 
   statusEl.textContent = statusText(
     m,
-    analyzeChk.checked && !analyzing ? analysis?.scores ?? null : null,
+    showHints && !analyzing ? analysis?.scores ?? null : null,
     thinking,
     analysis?.timedOut ?? false,
   );
@@ -213,18 +220,35 @@ function applyMove(col: number): void {
 }
 
 function positionChanged(animateLast: boolean): void {
-  analysis = null;
-  analysisGeneration++;
-  analyzing = analyzeChk.checked && engineReady && !gameOver();
   writeMovesToLocation(played());
-  renderBoard(animateLast);
-  afterChange();
+  applyHintComputer("position", animateLast);
 }
 
-function afterChange(): void {
-  if (gameOver()) return;
-  if (analyzeChk.checked && engineReady) void requestAnalyze();
-  else scheduleComputer();
+function hintContext(): HintSessionContext {
+  return {
+    hintsOn: analyzeChk.checked,
+    engineReady,
+    gameOver: gameOver(),
+    paused,
+    role: currentRole(),
+    hasAnalysis: analysis !== null || analyzing,
+  };
+}
+
+function applyHintComputer(event: HintSessionEvent, animateLast: boolean): void {
+  const plan = planHintAndComputer(event, hintContext());
+  if (plan.invalidateAnalysis) {
+    analysisGeneration++;
+    analyzing = false;
+    analysis = null;
+  }
+  if (plan.requestAnalyze) analyzing = true;
+  // Apply computer cancel/pause/thinking before painting. Scheduling used to
+  // run after render, so switching the last computer to Human left "thinking"
+  // or "Paused" on screen after those flags were already cleared.
+  if (plan.scheduleComputer) scheduleComputer();
+  renderBoard(animateLast);
+  if (plan.requestAnalyze) void requestAnalyze();
 }
 
 let cpuTimer = 0;
@@ -261,10 +285,7 @@ function scheduleComputer(): void {
     engineLine.textContent = "Waiting for solver…";
     return;
   }
-  if (plan.type === "engine") {
-    thinking = true;
-    renderBoard(false);
-  }
+  if (plan.type === "engine") thinking = true;
   const turn: PendingComputerTurn = { generation: cpuGeneration, role, moves, plan };
   cpuTimer = window.setTimeout(() => {
     void executeComputerTurn(turn);
@@ -292,17 +313,17 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
 }
 
 async function requestAnalyze(): Promise<void> {
-  const token = ++analysisGeneration;
-  if (!engineReady || gameOver()) {
+  if (!shouldRequestAnalysis(hintContext())) {
     analyzing = false;
     renderBoard(false);
     return;
   }
+  const token = ++analysisGeneration;
   analyzing = true;
   engineLine.textContent = "analyzing…";
   renderBoard(false);
   const r = await send({ type: "analyze", moves: played() });
-  if (token !== analysisGeneration || !analyzeChk.checked || gameOver()) return;
+  if (!analysisReplyApplies(token, analysisGeneration, hintContext())) return;
   analyzing = false;
   if (r.type === "analyzed") {
     analysis = { scores: r.scores, timedOut: r.timedOut };
@@ -311,7 +332,6 @@ async function requestAnalyze(): Promise<void> {
     engineLine.textContent = r.type === "error" ? r.message : "Analysis unavailable.";
   }
   renderBoard(false);
-  scheduleComputer();
 }
 
 function reportEngine(
@@ -366,14 +386,10 @@ newBtn.addEventListener("click", () => {
 });
 
 analyzeChk.addEventListener("change", () => {
-  if (analyzeChk.checked) void requestAnalyze();
+  if (analyzeChk.checked) applyHintComputer("hintsOn", false);
   else {
-    analysisGeneration++;
-    analyzing = false;
     engineLine.textContent = engineReady ? "Solver ready." : "Getting the solver ready…";
-    scoresEl.hidden = true;
-    scheduleComputer();
-    renderBoard(false);
+    applyHintComputer("hintsOff", false);
   }
 });
 
@@ -400,8 +416,7 @@ delay.addEventListener("input", () => {
 pauseBtn.addEventListener("click", () => {
   paused = !paused;
   if (paused) cancelComputerMove();
-  renderBoard(false);
-  if (!paused) scheduleComputer();
+  applyHintComputer(paused ? "pause" : "resume", false);
 });
 
 copyBtn.addEventListener("click", async () => {
@@ -418,15 +433,13 @@ copyBtn.addEventListener("click", async () => {
 document.querySelectorAll<HTMLInputElement>('input[name="role0"]').forEach((el) => {
   el.addEventListener("change", () => {
     roles[0] = el.value as Role;
-    scheduleComputer();
-    renderBoard(false);
+    applyHintComputer("role", false);
   });
 });
 document.querySelectorAll<HTMLInputElement>('input[name="role1"]').forEach((el) => {
   el.addEventListener("change", () => {
     roles[1] = el.value as Role;
-    scheduleComputer();
-    renderBoard(false);
+    applyHintComputer("role", false);
   });
 });
 
@@ -478,7 +491,7 @@ function onReady(r: WorkerRes): void {
   engineReady = true;
   if (!gameOver()) engineLine.textContent = "Solver ready.";
   reportBook(r);
-  afterChange();
+  applyHintComputer("engineReady", false);
   if (bookOn) loadDownloadedBooks();
 }
 
