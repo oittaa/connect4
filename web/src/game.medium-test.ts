@@ -2,14 +2,21 @@
 
 import {
   INVALID,
+  analysisComplete,
+  analysisProven,
+  analysisScoreClass,
   chooseAfterEngine,
   completeMoveScores,
   forcedWinOrBlock,
+  formatScore,
   isDraw,
   lastMoveWin,
   mediumMove,
   pickMedium,
   planComputerTurn,
+  playMoves,
+  provenBestColumns,
+  statusText,
   type CompleteColumnScores,
 } from "./game.ts";
 
@@ -135,6 +142,42 @@ same(completeMoveScores(fullColScores, fullCol), fullColScores, "full-column sen
 assert(
   completeMoveScores([INVALID, INVALID, 0, 1, 0, -1, -2], fullCol) === null,
   "legal missing child next to a full column",
+);
+
+const emptyHeights = playMoves([]).height;
+const timeoutLookalike = [1, 0, 10, 10, -2, -2, -2];
+const timeoutPartial = [INVALID, 0, 10, 10, -2, -2, -2];
+assert(analysisComplete(timeoutLookalike, emptyHeights), "seven exact scores look complete");
+assert(analysisComplete(timeoutPartial, emptyHeights) === false, "unfinished column is incomplete");
+assert(analysisComplete(fullColScores, playMoves(fullCol).height), "full-column sentinel is complete");
+assert(analysisProven(timeoutLookalike, emptyHeights, true) === false, "timedOut complete array is not proven");
+assert(analysisProven(timeoutPartial, emptyHeights, false) === false, "partial array is not proven");
+assert(analysisProven(timeoutPartial, emptyHeights, true) === false, "timedOut partial is not proven");
+assert(analysisProven(emptyScores, emptyHeights, false), "completed analysis is proven");
+assert(analysisProven(fullColScores, playMoves(fullCol).height, false), "full-column sentinel can be proven");
+assert(analysisProven(fullColScores, playMoves(fullCol).height, true) === false, "timedOut full-column is not proven");
+same(provenBestColumns(timeoutLookalike, emptyHeights, true), [], "timedOut complete array has no best highlight");
+same(provenBestColumns(timeoutPartial, emptyHeights, false), [], "partial array has no best highlight");
+same(provenBestColumns(emptyScores, emptyHeights, false), [3], "completed analysis highlights the best");
+same(provenBestColumns(emptyScores, emptyHeights, true), [], "timedOut book-looking array has no best highlight");
+same(provenBestColumns(null, emptyHeights, false), [], "missing analysis has no best highlight");
+assert(statusText([], timeoutLookalike, false, true) === "Red to move", "timedOut complete array is not a proven win");
+assert(statusText([], timeoutPartial, false, false) === "Red to move", "partial array is not a proven status");
+assert(statusText([], emptyScores, false, false) === "Red to move · win", "completed analysis reports a proven win");
+assert(statusText([], emptyScores, false, true) === "Red to move", "timedOut completed-looking scores stay unproven");
+assert(statusText([], [-1, -1, -1, -1, -1, -1, -1], false, false) === "Red to move · loss", "proven loss");
+assert(statusText([], [0, 0, 0, 0, 0, 0, 0], false, false) === "Red to move · draw", "proven draw");
+assert(formatScore(INVALID) === "", "unfinished columns stay blank");
+assert(analysisScoreClass(INVALID, false) === null, "unfinished columns are not scored as a loss");
+assert(analysisScoreClass(INVALID, true) === null, "unfinished columns are not best");
+assert(analysisScoreClass(10, true) === "best", "proven best column");
+assert(analysisScoreClass(10, false) === "win", "partial exact win still displays");
+assert(analysisScoreClass(-2, false) === "loss", "partial exact loss still displays");
+assert(analysisScoreClass(0, false) === "draw", "partial exact draw still displays");
+same(
+  completeMoveScores(timeoutLookalike, []),
+  timeoutLookalike,
+  "Medium still treats a full score array as complete move scores",
 );
 
 console.log("medium checks ok");

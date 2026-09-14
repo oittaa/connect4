@@ -153,7 +153,7 @@ impl WasmEngine {
         self.solver.solve(p).score as i8
     }
 
-    /// 7 scores, `INVALID_MOVE` (-1000 as i16) for full columns.
+    /// 7 scores, `INVALID_MOVE` (-1000 as i16) for full or unfinished columns.
     pub fn analyze(&mut self, moves: &[u8]) -> Vec<i16> {
         let mut p = Position::new();
         if !p.play_moves(moves) {

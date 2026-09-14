@@ -372,11 +372,14 @@ impl Solver {
             }
             let mut child = pos;
             child.play_col(col);
+            // Aborted search returns a bound, not an exact child score. Leave
+            // this column and later ones invalid instead of displaying that
+            // bound as a proven win, loss, or draw.
             let (s, _) = self.score_position(child, false);
-            scores[col] = -s;
             if self.timed_out {
                 break;
             }
+            scores[col] = -s;
         }
         scores
     }
@@ -1309,5 +1312,70 @@ mod tests {
         let _ = solver.column_scores_from_book(&pos);
         assert_eq!(solver.node_count(), nodes);
         assert_eq!(solver.move_book_hit(), hit);
+    }
+
+    fn analysis_timeout_pos() -> Position {
+        let mut pos = Position::new();
+        assert_eq!(pos.play_seq("122435527534575161761"), 21);
+        pos
+    }
+
+    fn complete_analysis_timeout_pos() -> (Position, [i32; WIDTH]) {
+        let pos = analysis_timeout_pos();
+        let mut reference = Solver::with_tt_log(20);
+        let full = reference.analyze(pos);
+        assert!(!reference.timed_out());
+        assert_eq!(full, [-1, 0, 10, 10, -2, -2, -2]);
+        (pos, full)
+    }
+
+    #[test]
+    fn analyze_timeout_during_an_early_child_leaves_columns_invalid() {
+        let pos = analysis_timeout_pos();
+        let mut solver = Solver::with_tt_log(20);
+        solver.max_nodes = 1;
+        let scores = solver.analyze(pos);
+        assert!(solver.timed_out());
+        assert_eq!(scores, [INVALID_MOVE; WIDTH]);
+        assert!(solver.proven.is_empty());
+    }
+
+    #[test]
+    fn analyze_timeout_during_the_last_child_keeps_prior_exact_scores() {
+        let (pos, full) = complete_analysis_timeout_pos();
+        let mut solver = Solver::with_tt_log(20);
+        // Enough nodes to finish columns 3,4,2,5,1,6; not enough for column 0.
+        solver.max_nodes = 30_000;
+        let scores = solver.analyze(pos);
+        assert!(solver.timed_out());
+        assert_eq!(scores[0], INVALID_MOVE);
+        for col in 1..WIDTH {
+            assert_eq!(scores[col], full[col], "column {col}");
+        }
+        assert!(solver.proven.get_entry(pos.canonical_key()).is_none());
+
+        let mut interrupted = pos;
+        interrupted.play_col(0);
+        assert_eq!(solver.proven.get(interrupted.canonical_key()), None);
+        for col in 1..WIDTH {
+            let mut child = pos;
+            child.play_col(col);
+            assert_eq!(
+                solver.proven.get(child.canonical_key()),
+                Some(-scores[col]),
+                "column {col}"
+            );
+        }
+
+        solver.max_nodes = 0;
+        let again = solver.analyze(pos);
+        assert!(!solver.timed_out());
+        assert_eq!(again, full);
+        let parent = solver
+            .proven
+            .get_entry(pos.canonical_key())
+            .expect("completed analysis stores the parent");
+        assert_eq!(parent.score, 10);
+        assert!(parent.cols.is_some());
     }
 }
