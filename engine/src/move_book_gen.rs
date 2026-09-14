@@ -133,15 +133,15 @@ pub fn generate(options: &GenerateOptions) -> Result<GenerationReport, String> {
     let queued_frontier = jobs.len();
     let tt_bytes_per_worker = (1u64 << options.tt_bits.clamp(16, 27)) * 6;
     eprintln!(
-        "reachable={} frontier={} lower_slots_added={} queued={} threads={} tt=2^{} (~{} MiB/worker, ~{} MiB total)",
+        "reachable={} frontier={} lower_slots_added={} queued={} threads={} tt=2^{} (~{:.1} MiB/worker, ~{:.1} MiB total)",
         positions.iter().map(Vec::len).sum::<usize>(),
         frontier.len(),
         lower_added,
         queued_frontier,
         options.threads,
         options.tt_bits,
-        tt_bytes_per_worker / (1024 * 1024),
-        tt_bytes_per_worker * options.threads as u64 / (1024 * 1024)
+        tt_bytes_per_worker as f64 / (1024.0 * 1024.0),
+        tt_bytes_per_worker as f64 * options.threads as f64 / (1024.0 * 1024.0)
     );
 
     let shared_book = Arc::new(Mutex::new(move_book));
