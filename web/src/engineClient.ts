@@ -11,6 +11,10 @@ export const SOLVER_TRANSPORT_ERROR = "The solver stopped unexpectedly.";
 /** Settled into pending requests when the worker is terminated for a replacement. */
 export const WORKER_REPLACED = "worker replaced";
 
+export function isWorkerReplaced(r: WorkerRes): boolean {
+  return r.type === "error" && r.message === WORKER_REPLACED;
+}
+
 export type EnginePort = {
   postMessage(message: WorkerReq): void;
   onmessage: ((ev: { data: WorkerRes }) => void) | null;

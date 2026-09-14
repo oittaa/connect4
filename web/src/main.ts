@@ -23,8 +23,9 @@ import {
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
-import { createEngineClient, isBlockingCompute, WORKER_REPLACED, type EngineRequest } from "./engineClient";
+import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
+import { createWorkerReplace } from "./workerReplace";
 
 const history: number[] = [];
 let cursor = 0;
@@ -39,6 +40,8 @@ let bookOn = true;
 let bookGeneration = 0;
 let bookState: Extract<WorkerRes, { type: "ready" }> | null = null;
 let bookDownloads = { score: "", move: "" };
+let retainedScoreBook: ArrayBuffer | null = null;
+let retainedMoveBook: ArrayBuffer | null = null;
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
@@ -97,70 +100,57 @@ function spawnWorker(): Worker {
   return new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
 }
 
-let worker = spawnWorker();
-let engineClient = createEngineClient(worker, { onFailure: declareSolverFailed });
-let replacing: Promise<void> | null = null;
-let computeGate: Promise<void> = Promise.resolve();
-
 function initTimeoutMs(): number {
   return new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs;
 }
 
-function replaceWorker(): Promise<void> {
-  if (!replacing) {
-    replacing = (async () => {
-      const oldClient = engineClient;
-      const oldWorker = worker;
-      oldClient.fail(WORKER_REPLACED);
-      oldWorker.terminate();
-      worker = spawnWorker();
-      engineClient = createEngineClient(worker, { onFailure: declareSolverFailed });
-      engineReady = false;
-      const r = await engineClient.request({ type: "init", timeoutMs: initTimeoutMs() });
-      if (r.type !== "ready") {
-        engineClient.fail();
-        declareSolverFailed(r.type === "error" ? r.message : "Solver failed");
-        return;
-      }
-      if (engineFailed) return;
-      engineReady = true;
-      if (!gameOver()) engineLine.textContent = "Solver ready.";
-      reportBook(r);
-      if (bookOn) loadDownloadedBooks();
-    })().finally(() => {
-      replacing = null;
-    });
+async function restoreRetainedBooks(
+  client: { request(msg: EngineRequest): Promise<WorkerRes> },
+  ready: WorkerRes,
+): Promise<void> {
+  reportBook(ready);
+  if (!bookOn) return;
+  if (retainedScoreBook) {
+    const r = await client.request({ type: "loadScoreBook", bytes: retainedScoreBook.slice(0) });
+    bookDownloads.score = r.type === "error" ? r.message : "";
+    reportBook(r);
   }
-  return replacing;
+  if (retainedMoveBook) {
+    const r = await client.request({ type: "loadMoveBook", bytes: retainedMoveBook.slice(0) });
+    bookDownloads.move = r.type === "error" ? r.message : "";
+    reportBook(r);
+  }
 }
 
+function onReplacementReady(): void {
+  if (engineFailed) return;
+  engineReady = true;
+  if (!gameOver()) engineLine.textContent = "Solver ready.";
+  applyHintComputer("engineReady", false);
+}
+
+const workerSession = createWorkerReplace({
+  spawn() {
+    const worker = spawnWorker();
+    return {
+      client: createEngineClient(worker, { onFailure: declareSolverFailed }),
+      terminate() {
+        worker.terminate();
+      },
+    };
+  },
+  initTimeoutMs,
+  onReplaceStart() {
+    engineReady = false;
+  },
+  restoreBooks: restoreRetainedBooks,
+  afterReady: onReplacementReady,
+  onInitFailure: declareSolverFailed,
+  isEngineFailed: () => engineFailed,
+});
+
 function send(msg: EngineRequest): Promise<WorkerRes> {
-  if (!isBlockingCompute(msg.type)) {
-    if (replacing) return replacing.then(() => engineClient.request(msg));
-    return engineClient.request(msg);
-  }
-  let posted!: () => void;
-  const postedP = new Promise<void>((resolve) => {
-    posted = resolve;
-  });
-  const result = computeGate.then(async () => {
-    try {
-      // A queued abort cannot stop synchronous WASM. Drop the worker only when
-      // a new blocking search is posted while one is already running. Timer
-      // cancels, book fetches, and idle book hits do not restart. The new
-      // worker reloads persisted proven entries and books (HTTP cache); the
-      // old TT and unflushed proofs are gone.
-      if (engineClient.hasPendingCompute()) await replaceWorker();
-      const p = engineClient.request(msg);
-      posted();
-      return p;
-    } catch (e) {
-      posted();
-      throw e;
-    }
-  });
-  computeGate = postedP;
-  return result;
+  return workerSession.send(msg);
 }
 
 solverReload.addEventListener("click", () => location.reload());
@@ -388,7 +378,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     return;
   }
   const r = await send({ type: "bestMove", moves: turn.moves });
-  if (computerTurnStale(turn.generation)) return;
+  if (computerTurnStale(turn.generation) || isWorkerReplaced(r)) return;
   thinking = false;
   if (r.type !== "moved") {
     if (!engineFailed) {
@@ -414,7 +404,7 @@ async function requestAnalyze(): Promise<void> {
   engineLine.textContent = "analyzing…";
   renderBoard(false);
   const r = await send({ type: "analyze", moves: played() });
-  if (!analysisReplyApplies(token, analysisGeneration, hintContext())) return;
+  if (!analysisReplyApplies(token, analysisGeneration, hintContext()) || isWorkerReplaced(r)) return;
   analyzing = false;
   if (r.type === "analyzed") {
     analysis = { scores: r.scores, timedOut: r.timedOut };
@@ -488,13 +478,17 @@ analyzeChk.addEventListener("change", () => {
 
 bookChk.addEventListener("change", () => {
   bookOn = bookChk.checked;
+  if (!bookOn) {
+    retainedScoreBook = null;
+    retainedMoveBook = null;
+  }
   if (!engineReady || engineFailed) return;
   if (bookOn) {
     loadDownloadedBooks();
   } else {
     const generation = ++bookGeneration;
     bookDownloads = { score: "", move: "" };
-    void engineClient.request({ type: "clearDownloadedBooks" }).then((r) => {
+    void send({ type: "clearDownloadedBooks" }).then((r) => {
       if (generation === bookGeneration) reportBook(r);
     });
   }
@@ -560,25 +554,51 @@ function reportBook(r?: WorkerRes): void {
   ].filter(Boolean).join(" · ");
 }
 
+async function fetchBookBytes(url: string, label: string): Promise<ArrayBuffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${label} download failed (${response.status})`);
+  return response.arrayBuffer();
+}
+
 function loadDownloadedBooks(): void {
   const generation = ++bookGeneration;
   bookDownloads = { score: "Downloading score book…", move: "Downloading move book…" };
   reportBook();
-  for (const [book, type, file] of [
-    ["score", "fetchScoreBook", "opening.c4book"],
-    ["move", "fetchMoveBook", "opening.c4move"],
-  ] as const) {
-    void engineClient.request({ type, url: new URL(`books/${file}`, document.baseURI).href }).then((r) => {
+  void (async () => {
+    try {
+      const bytes = await fetchBookBytes(new URL("books/opening.c4book", document.baseURI).href, "Score book");
       if (generation !== bookGeneration || !bookOn || engineFailed) return;
-      bookDownloads[book] = r.type === "error" ? r.message : "";
+      retainedScoreBook = bytes.slice(0);
+      const r = await send({ type: "loadScoreBook", bytes: bytes.slice(0) });
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.score = r.type === "error" ? r.message : "";
       reportBook(r);
-    });
-  }
+    } catch (e) {
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.score = e instanceof Error ? e.message : String(e);
+      reportBook();
+    }
+  })();
+  void (async () => {
+    try {
+      const bytes = await fetchBookBytes(new URL("books/opening.c4move", document.baseURI).href, "Move book");
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      retainedMoveBook = bytes.slice(0);
+      const r = await send({ type: "loadMoveBook", bytes: bytes.slice(0) });
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.move = r.type === "error" ? r.message : "";
+      reportBook(r);
+    } catch (e) {
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.move = e instanceof Error ? e.message : String(e);
+      reportBook();
+    }
+  })();
 }
 
 function onReady(r: WorkerRes): void {
   if (r.type !== "ready") {
-    engineClient.fail();
+    workerSession.client().fail();
     declareSolverFailed(r.type === "error" ? r.message : "Solver failed");
     return;
   }

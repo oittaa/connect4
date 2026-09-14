@@ -5,6 +5,7 @@ import {
   SOLVER_TRANSPORT_ERROR,
   WORKER_REPLACED,
   isBlockingCompute,
+  isWorkerReplaced,
   type EnginePort,
 } from "./engineClient.ts";
 import type { WorkerReq, WorkerRes } from "./engineProtocol.ts";
@@ -204,6 +205,9 @@ function ready(id: number): WorkerRes {
   same(r, { id: 1, type: "error", message: "init failed" }, "fail() makes future requests fail without posting");
   assert(port.posted.length === 0, "fail() does not post");
 }
+
+assert(isWorkerReplaced({ id: 0, type: "error", message: WORKER_REPLACED }), "replaced error is recognized");
+assert(!isWorkerReplaced({ id: 1, type: "error", message: SOLVER_TRANSPORT_ERROR }), "transport error is not a replace");
 
 assert(isBlockingCompute("analyze"), "analyze blocks the worker");
 assert(isBlockingCompute("bestMove"), "bestMove blocks the worker");
