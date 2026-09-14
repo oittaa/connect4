@@ -248,6 +248,94 @@ export function chooseAfterEngine(
   return legalEngineColumn(col) ? col : null;
 }
 
+/** Session flags that decide whether hints run or the computer should move. */
+export type HintSessionContext = {
+  hintsOn: boolean;
+  engineReady: boolean;
+  gameOver: boolean;
+  paused: boolean;
+  role: Role;
+  hasAnalysis: boolean;
+};
+
+export type HintSessionEvent =
+  | "position"
+  | "engineReady"
+  | "hintsOn"
+  | "hintsOff"
+  | "role"
+  | "pause"
+  | "resume";
+
+export type HintComputerPlan = {
+  invalidateAnalysis: boolean;
+  requestAnalyze: boolean;
+  scheduleComputer: boolean;
+};
+
+export function isActiveComputerTurn(
+  ctx: Pick<HintSessionContext, "gameOver" | "paused" | "role">,
+): boolean {
+  return !ctx.gameOver && !ctx.paused && ctx.role !== "human";
+}
+
+/** Full-column analysis is for human turns and paused positions, not active computers. */
+export function shouldRequestAnalysis(ctx: HintSessionContext): boolean {
+  return ctx.hintsOn && ctx.engineReady && !ctx.gameOver && (ctx.paused || ctx.role === "human");
+}
+
+export function shouldShowHintDisplay(
+  hintsOn: boolean,
+  gameOver: boolean,
+  paused: boolean,
+  role: Role,
+): boolean {
+  return hintsOn && !gameOver && (paused || role === "human");
+}
+
+export function analysisReplyApplies(
+  token: number,
+  generation: number,
+  ctx: HintSessionContext,
+): boolean {
+  return token === generation && shouldRequestAnalysis(ctx);
+}
+
+/**
+ * Keep computer scheduling independent of hint analysis. Active computers
+ * never request `analyze`; leaving an analysis view invalidates its result.
+ */
+export function planHintAndComputer(
+  event: HintSessionEvent,
+  ctx: HintSessionContext,
+): HintComputerPlan {
+  const analyze = shouldRequestAnalysis(ctx);
+  switch (event) {
+    case "position":
+      return { invalidateAnalysis: true, requestAnalyze: analyze, scheduleComputer: true };
+    case "engineReady":
+      return { invalidateAnalysis: false, requestAnalyze: analyze, scheduleComputer: true };
+    case "hintsOn":
+      return { invalidateAnalysis: false, requestAnalyze: analyze, scheduleComputer: false };
+    case "hintsOff":
+      return { invalidateAnalysis: true, requestAnalyze: false, scheduleComputer: false };
+    case "role":
+      return {
+        invalidateAnalysis: !analyze,
+        requestAnalyze: analyze && !ctx.hasAnalysis,
+        scheduleComputer: true,
+      };
+    case "pause":
+      return { invalidateAnalysis: false, requestAnalyze: analyze, scheduleComputer: false };
+    case "resume":
+      return {
+        invalidateAnalysis: isActiveComputerTurn(ctx),
+        requestAnalyze: analyze && !ctx.hasAnalysis,
+        scheduleComputer: true,
+      };
+  }
+}
+
 /** True if every legal column has an exact score. Ignores timeout. */
 export function analysisComplete(scores: ArrayLike<number>, heights: number[]): boolean {
   if (scores.length < WIDTH) return false;
