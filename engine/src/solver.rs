@@ -162,6 +162,32 @@ impl Solver {
         self.move_book.as_ref()
     }
 
+    /// Exact column scores from the score book only (no search).
+    ///
+    /// `None` unless every legal non-winning child is in the book, so Medium
+    /// never ranks a partial set. Immediate wins use the closed-form score.
+    pub fn column_scores_from_book(&self, pos: &Position) -> Option<[i32; WIDTH]> {
+        if pos.last_player_won() || pos.is_draw() {
+            return None;
+        }
+        let mut scores = [INVALID_MOVE; WIDTH];
+        let mut playable = false;
+        for col in 0..WIDTH {
+            if !pos.can_play(col) {
+                continue;
+            }
+            playable = true;
+            scores[col] = if pos.is_winning_move(col) {
+                (AREA as i32 + 1 - pos.moves() as i32) / 2
+            } else {
+                let mut child = *pos;
+                child.play_col(col);
+                -self.book.get(&child)?
+            };
+        }
+        playable.then_some(scores)
+    }
+
     pub fn proven(&self) -> &ProvenTable {
         &self.proven
     }
@@ -1229,5 +1255,59 @@ mod tests {
         assert_eq!(solver.select_move(pos), Some(2));
         solver.clear_move_book();
         assert!(solver.move_book().is_none());
+    }
+
+    #[test]
+    fn column_scores_from_embedded_book_match_empty_board_analysis() {
+        let solver = Solver::new();
+        let scores = solver
+            .column_scores_from_book(&Position::new())
+            .expect("empty board children are in the 4-ply book");
+        assert_eq!(scores, [-2, -1, 0, 1, 0, -1, -2]);
+        assert_eq!(solver.node_count(), 0);
+    }
+
+    #[test]
+    fn column_scores_from_book_require_every_child() {
+        let solver = Solver::new();
+        let mut pos = Position::new();
+        pos.play_seq("4444");
+        assert_eq!(pos.moves(), 4);
+        assert!(solver.column_scores_from_book(&pos).is_none());
+
+        let mut shallower = Position::new();
+        shallower.play_seq("444");
+        let scores = solver
+            .column_scores_from_book(&shallower)
+            .expect("ply-3 children are in the 4-ply book");
+        assert_eq!(scores.iter().filter(|&&s| s != INVALID_MOVE).count(), 7);
+    }
+
+    #[test]
+    fn eight_ply_book_scores_ply_seven_but_not_ply_eight() {
+        let mut solver = Solver::with_tt_log(16);
+        solver
+            .load_book(include_bytes!("../../books/8ply.c4book"))
+            .unwrap();
+        let mut ply7 = Position::new();
+        ply7.play_seq("1234567");
+        assert_eq!(ply7.moves(), 7);
+        assert!(solver.column_scores_from_book(&ply7).is_some());
+        let mut ply8 = Position::new();
+        ply8.play_seq("12345671");
+        assert_eq!(ply8.moves(), 8);
+        assert!(solver.column_scores_from_book(&ply8).is_none());
+    }
+
+    #[test]
+    fn column_scores_from_book_leave_select_move_stats_alone() {
+        let mut solver = Solver::new();
+        let pos = Position::new();
+        assert_eq!(solver.select_move(pos), Some(3));
+        let nodes = solver.node_count();
+        let hit = solver.move_book_hit();
+        let _ = solver.column_scores_from_book(&pos);
+        assert_eq!(solver.node_count(), nodes);
+        assert_eq!(solver.move_book_hit(), hit);
     }
 }

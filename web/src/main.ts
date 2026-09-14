@@ -8,7 +8,7 @@ import {
   formatScore,
   isDraw,
   lastMoveWin,
-  mediumMove,
+  pickMedium,
   playMoves,
   statusText,
   toMove,
@@ -288,7 +288,7 @@ async function requestMove(role: Role, generation: number): Promise<void> {
   scores = r.scores;
   reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
   let col = r.col;
-  if (role === "medium") col = mediumMove(r.scores) ?? r.col;
+  if (role === "medium") col = pickMedium(played(), r.col, r.scores) ?? r.col;
   if (!(col >= 0 && col < WIDTH)) col = easyMove(played()) ?? 255;
   if (col >= 0 && col < WIDTH && !gameOver()) applyMove(col);
   else renderBoard(false);

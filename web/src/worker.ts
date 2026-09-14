@@ -81,6 +81,7 @@ type Engine = {
   cacheLoad(data: Uint8Array): boolean;
   cacheSave(): Uint8Array;
   cacheLen(): number;
+  bookColumnScores(moves: Uint8Array): Int16Array;
 };
 
 let engine: Engine | null = null;
@@ -344,11 +345,12 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const timedOut = engine.timedOut();
         const fromMoveBook = engine.moveBookHit();
         if (!fromMoveBook) schedulePersist(engine);
+        const bookScores = Array.from(engine.bookColumnScores(moves));
         reply({
           id: msg.id,
           type: "moved",
           col,
-          scores: [],
+          scores: bookScores.length === 7 ? bookScores : [],
           nodes,
           micros,
           timedOut,

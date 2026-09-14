@@ -122,14 +122,64 @@ export function easyMove(moves: number[]): number | null {
   return order[Math.floor(Math.random() * order.length)] ?? legal[0];
 }
 
-export function mediumMove(scores: number[]): number | null {
+/** Probability Medium keeps the engine/book column when scores are unavailable. */
+export const MEDIUM_KEEP_BEST = 0.82;
+const MEDIUM_SECOND_BEST = 0.28;
+
+/** True if playing `col` leaves the opponent an immediate winning drop. */
+export function givesOpponentImmediateWin(g: Grid, col: number, player: Player): boolean {
+  const opp = (3 - player) as Player;
+  const row = g.height[col];
+  if (row >= HEIGHT) return true;
+  g.cells[row][col] = player;
+  g.height[col] = row + 1;
+  let hang = false;
+  if (!winningCells(g, row, col)) {
+    hang = legalCols(g).some((c) => isWinningDrop(g, c, opp));
+  }
+  g.cells[row][col] = 0;
+  g.height[col] = row;
+  return hang;
+}
+
+export function mediumMove(scores: number[], random: () => number = Math.random): number | null {
   const ranked = scores
     .map((s, c) => ({ s, c }))
     .filter((x) => x.s !== INVALID)
     .sort((a, b) => b.s - a.s);
   if (ranked.length === 0) return null;
-  if (ranked.length > 1 && Math.random() < 0.28) return ranked[1].c;
+  if (ranked.length > 1 && random() < MEDIUM_SECOND_BEST) return ranked[1].c;
   return ranked[0].c;
+}
+
+/**
+ * Medium: take wins/blocks, then rank from complete score-book columns, else
+ * keep the engine column most of the time or leak to a non-losing legal drop.
+ */
+export function pickMedium(
+  moves: number[],
+  engineCol: number,
+  scores: number[],
+  random: () => number = Math.random,
+): number | null {
+  const g = playMoves(moves);
+  const p = toMove(moves);
+  const opp = (3 - p) as Player;
+  const legal = legalCols(g);
+  if (legal.length === 0) return null;
+  for (const c of legal) if (isWinningDrop(g, c, p)) return c;
+  for (const c of legal) if (isWinningDrop(g, c, opp)) return c;
+
+  const ranked = mediumMove(scores, random);
+  if (ranked !== null) return ranked;
+
+  const safe = legal.filter((c) => !givesOpponentImmediateWin(g, c, p));
+  const pool = safe.length > 0 ? safe : legal;
+  if (pool.length === 1) return pool[0];
+  if (pool.includes(engineCol) && random() < MEDIUM_KEEP_BEST) return engineCol;
+  const rest = pool.filter((c) => c !== engineCol);
+  const pickFrom = rest.length > 0 ? rest : pool;
+  return pickFrom[Math.floor(random() * pickFrom.length)] ?? engineCol;
 }
 
 export function analysisComplete(scores: number[], heights: number[]): boolean {
