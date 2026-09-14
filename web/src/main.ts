@@ -23,7 +23,7 @@ import {
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
-import { createEngineClient, type EngineRequest } from "./engineClient";
+import { createEngineClient, isBlockingCompute, WORKER_REPLACED, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
 
 const history: number[] = [];
@@ -93,9 +93,76 @@ function declareSolverFailed(detail: string): void {
   renderBoard(false);
 }
 
-const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-const engineClient = createEngineClient(worker, { onFailure: declareSolverFailed });
-const send = (msg: EngineRequest) => engineClient.request(msg);
+function spawnWorker(): Worker {
+  return new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+}
+
+let worker = spawnWorker();
+let engineClient = createEngineClient(worker, { onFailure: declareSolverFailed });
+let replacing: Promise<void> | null = null;
+let computeGate: Promise<void> = Promise.resolve();
+
+function initTimeoutMs(): number {
+  return new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs;
+}
+
+function replaceWorker(): Promise<void> {
+  if (!replacing) {
+    replacing = (async () => {
+      const oldClient = engineClient;
+      const oldWorker = worker;
+      oldClient.fail(WORKER_REPLACED);
+      oldWorker.terminate();
+      worker = spawnWorker();
+      engineClient = createEngineClient(worker, { onFailure: declareSolverFailed });
+      engineReady = false;
+      const r = await engineClient.request({ type: "init", timeoutMs: initTimeoutMs() });
+      if (r.type !== "ready") {
+        engineClient.fail();
+        declareSolverFailed(r.type === "error" ? r.message : "Solver failed");
+        return;
+      }
+      if (engineFailed) return;
+      engineReady = true;
+      if (!gameOver()) engineLine.textContent = "Solver ready.";
+      reportBook(r);
+      if (bookOn) loadDownloadedBooks();
+    })().finally(() => {
+      replacing = null;
+    });
+  }
+  return replacing;
+}
+
+function send(msg: EngineRequest): Promise<WorkerRes> {
+  if (!isBlockingCompute(msg.type)) {
+    if (replacing) return replacing.then(() => engineClient.request(msg));
+    return engineClient.request(msg);
+  }
+  let posted!: () => void;
+  const postedP = new Promise<void>((resolve) => {
+    posted = resolve;
+  });
+  const result = computeGate.then(async () => {
+    try {
+      // A queued abort cannot stop synchronous WASM. Drop the worker only when
+      // a new blocking search is posted while one is already running. Timer
+      // cancels, book fetches, and idle book hits do not restart. The new
+      // worker reloads persisted proven entries and books (HTTP cache); the
+      // old TT and unflushed proofs are gone.
+      if (engineClient.hasPendingCompute()) await replaceWorker();
+      const p = engineClient.request(msg);
+      posted();
+      return p;
+    } catch (e) {
+      posted();
+      throw e;
+    }
+  });
+  computeGate = postedP;
+  return result;
+}
+
 solverReload.addEventListener("click", () => location.reload());
 
 function played(): number[] {
@@ -427,7 +494,7 @@ bookChk.addEventListener("change", () => {
   } else {
     const generation = ++bookGeneration;
     bookDownloads = { score: "", move: "" };
-    void send({ type: "clearDownloadedBooks" }).then((r) => {
+    void engineClient.request({ type: "clearDownloadedBooks" }).then((r) => {
       if (generation === bookGeneration) reportBook(r);
     });
   }
@@ -501,7 +568,7 @@ function loadDownloadedBooks(): void {
     ["score", "fetchScoreBook", "opening.c4book"],
     ["move", "fetchMoveBook", "opening.c4move"],
   ] as const) {
-    void send({ type, url: new URL(`books/${file}`, document.baseURI).href }).then((r) => {
+    void engineClient.request({ type, url: new URL(`books/${file}`, document.baseURI).href }).then((r) => {
       if (generation !== bookGeneration || !bookOn || engineFailed) return;
       bookDownloads[book] = r.type === "error" ? r.message : "";
       reportBook(r);
@@ -536,7 +603,7 @@ renderBoard(false);
 
 void send({
   type: "init",
-  timeoutMs: new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs,
+  timeoutMs: initTimeoutMs(),
 }).then(async (r) => {
   onReady(r);
   if (new URLSearchParams(location.search).has("bench") && engineReady) {

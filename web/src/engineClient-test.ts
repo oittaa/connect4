@@ -3,6 +3,8 @@
 import {
   createEngineClient,
   SOLVER_TRANSPORT_ERROR,
+  WORKER_REPLACED,
+  isBlockingCompute,
   type EnginePort,
 } from "./engineClient.ts";
 import type { WorkerReq, WorkerRes } from "./engineProtocol.ts";
@@ -201,6 +203,39 @@ function ready(id: number): WorkerRes {
   const r = await client.request({ type: "analyze", moves: [] });
   same(r, { id: 1, type: "error", message: "init failed" }, "fail() makes future requests fail without posting");
   assert(port.posted.length === 0, "fail() does not post");
+}
+
+assert(isBlockingCompute("analyze"), "analyze blocks the worker");
+assert(isBlockingCompute("bestMove"), "bestMove blocks the worker");
+assert(isBlockingCompute("solve"), "solve blocks the worker");
+assert(!isBlockingCompute("init"), "init is not a blocking search");
+assert(!isBlockingCompute("fetchScoreBook"), "book download is not a blocking search");
+
+{
+  const port = stub();
+  const client = createEngineClient(port);
+  const p = client.request({ type: "analyze", moves: [] });
+  assert(client.hasPendingCompute(), "analyze is pending compute");
+  port.deliver({ id: port.posted[0].id, type: "error", message: "analysis failed" });
+  await p;
+  assert(!client.hasPendingCompute(), "compute pending clears after reply");
+}
+
+{
+  const port = stub();
+  const client = createEngineClient(port);
+  const bookP = client.request({
+    type: "fetchScoreBook",
+    url: "books/opening.c4book",
+  });
+  assert(!client.hasPendingCompute(), "book fetch is not pending compute");
+  const analyzeP = client.request({ type: "analyze", moves: [] });
+  assert(client.hasPendingCompute(), "analyze behind a book fetch is still pending compute");
+  client.fail(WORKER_REPLACED);
+  const [book, analyze] = await Promise.all([bookP, analyzeP]);
+  assert(book.type === "error" && book.message === WORKER_REPLACED, "replace settles book");
+  assert(analyze.type === "error" && analyze.message === WORKER_REPLACED, "replace settles analyze");
+  assert(!client.hasPendingCompute(), "failed client has no pending compute");
 }
 
 console.log("engine client checks ok");
