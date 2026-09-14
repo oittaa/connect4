@@ -27,6 +27,8 @@ let thinking = false;
 let engineReady = false;
 let bookOn = true;
 let bookGeneration = 0;
+let bookState: Extract<WorkerRes, { type: "ready" }> | null = null;
+let bookDownloads = { score: "", move: "" };
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
@@ -37,6 +39,7 @@ const boardEl = document.getElementById("board")!;
 const scoresEl = document.getElementById("scores")!;
 const statusEl = document.getElementById("status")!;
 const engineLine = document.getElementById("engine-line")!;
+const bookLine = document.getElementById("book-line")!;
 const engineDiagnostics = document.getElementById("engine-diagnostics")!;
 const backBtn = document.getElementById("back") as HTMLButtonElement;
 const fwdBtn = document.getElementById("forward") as HTMLButtonElement;
@@ -283,7 +286,7 @@ async function requestMove(role: Role, generation: number): Promise<void> {
     return;
   }
   scores = r.scores;
-  reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache);
+  reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
   let col = r.col;
   if (role === "medium") col = mediumMove(r.scores) ?? r.col;
   if (!(col >= 0 && col < WIDTH)) col = easyMove(played()) ?? 255;
@@ -314,11 +317,21 @@ async function requestAnalyze(): Promise<void> {
   scheduleComputer();
 }
 
-function reportEngine(nodes: number, micros: number, timedOut: boolean, fromCache: boolean): void {
+function reportEngine(
+  nodes: number,
+  micros: number,
+  timedOut: boolean,
+  fromCache: boolean,
+  fromMoveBook = false,
+): void {
   const ms = micros / 1000;
   const nps = ms > 0 ? (nodes / ms) * 1000 : 0;
   if (fromCache) {
     engineLine.textContent = "cache hit";
+    return;
+  }
+  if (fromMoveBook) {
+    engineLine.textContent = "instant (move book)";
     return;
   }
   if (nodes === 0 && !timedOut) {
@@ -386,10 +399,11 @@ bookChk.addEventListener("change", () => {
   bookOn = bookChk.checked;
   if (!engineReady) return;
   if (bookOn) {
-    loadOpeningBook();
+    loadDownloadedBooks();
   } else {
     const generation = ++bookGeneration;
-    void send({ type: "clearBook" }).then((r) => {
+    bookDownloads = { score: "", move: "" };
+    void send({ type: "clearDownloadedBooks" }).then((r) => {
       if (generation === bookGeneration) reportBook(r);
     });
   }
@@ -443,23 +457,35 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowRight") fwdBtn.click();
 });
 
-function reportBook(r: WorkerRes): void {
-  if (r.type !== "ready" || analyzing || thinking || gameOver()) return;
-  engineLine.textContent = `Solver ready · opening book ${r.bookLen} positions (depth ${r.bookDepth})`;
+function reportBook(r?: WorkerRes): void {
+  if (r?.type === "ready") bookState = r;
+  if (!bookState) return;
+  const move =
+    bookState.moveBookPopulated > 0
+      ? `move book ${bookState.moveBookPopulated.toLocaleString()} moves (depth ${bookState.moveBookDepth})`
+      : "move book not loaded";
+  bookLine.textContent = [
+    `Score book ${bookState.bookLen.toLocaleString()} positions (depth ${bookState.bookDepth})`,
+    move,
+    bookDownloads.score,
+    bookDownloads.move,
+  ].filter(Boolean).join(" · ");
 }
 
-function loadOpeningBook(): void {
+function loadDownloadedBooks(): void {
   const generation = ++bookGeneration;
-  void send({
-    type: "fetchBook",
-    url: new URL("books/opening.c4book", document.baseURI).href,
-  }).then((r) => {
-    if (generation !== bookGeneration || !bookOn) return;
-    reportBook(r);
-    if (r.type === "error" && !analyzing && !thinking && !gameOver()) {
-      engineLine.textContent = `${r.message}. Using embedded 4-ply book.`;
-    }
-  });
+  bookDownloads = { score: "Downloading score book…", move: "Downloading move book…" };
+  reportBook();
+  for (const [book, type, file] of [
+    ["score", "fetchScoreBook", "opening.c4book"],
+    ["move", "fetchMoveBook", "opening.c4move"],
+  ] as const) {
+    void send({ type, url: new URL(`books/${file}`, document.baseURI).href }).then((r) => {
+      if (generation !== bookGeneration || !bookOn) return;
+      bookDownloads[book] = r.type === "error" ? r.message : "";
+      reportBook(r);
+    });
+  }
 }
 
 function onReady(r: WorkerRes): void {
@@ -468,15 +494,17 @@ function onReady(r: WorkerRes): void {
     return;
   }
   engineReady = true;
+  if (!gameOver()) engineLine.textContent = "Solver ready.";
   reportBook(r);
   afterChange();
-  if (bookOn) loadOpeningBook();
+  if (bookOn) loadDownloadedBooks();
 }
 
 const fromUrl = readMovesFromLocation();
 if (fromUrl) {
   history.push(...fromUrl);
   cursor = history.length;
+  writeMovesToLocation(played());
 }
 
 renderBoard(false);

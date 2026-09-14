@@ -5,16 +5,25 @@ import { cacheLoad, cacheSave } from "./cache";
 
 export type WorkerReq =
   | { id: number; type: "init"; timeoutMs: number }
-  | { id: number; type: "fetchBook"; url: string }
-  | { id: number; type: "loadBook"; bytes: ArrayBuffer }
-  | { id: number; type: "clearBook" }
+  | { id: number; type: "fetchScoreBook"; url: string }
+  | { id: number; type: "fetchMoveBook"; url: string }
+  | { id: number; type: "loadScoreBook"; bytes: ArrayBuffer }
+  | { id: number; type: "loadMoveBook"; bytes: ArrayBuffer }
+  | { id: number; type: "clearDownloadedBooks" }
   | { id: number; type: "setTimeout"; ms: number }
   | { id: number; type: "solve"; moves: number[] }
   | { id: number; type: "analyze"; moves: number[] }
   | { id: number; type: "bestMove"; moves: number[] };
 
 export type WorkerRes =
-  | { id: number; type: "ready"; bookLen: number; bookDepth: number }
+  | {
+      id: number;
+      type: "ready";
+      bookLen: number;
+      bookDepth: number;
+      moveBookPopulated: number;
+      moveBookDepth: number;
+    }
   | {
       id: number;
       type: "solved";
@@ -44,6 +53,7 @@ export type WorkerRes =
       micros: number;
       timedOut: boolean;
       fromCache: boolean;
+      fromMoveBook: boolean;
       key: string;
     }
   | { id: number; type: "error"; message: string };
@@ -58,10 +68,15 @@ type Engine = {
   micros(): number;
   loadBook(data: Uint8Array): boolean;
   clearBook(): void;
+  loadMoveBook(data: Uint8Array): boolean;
+  clearMoveBook(): void;
   setTimeoutMs(ms: number): void;
   resetTt(): void;
   bookLen(): number;
   bookDepth(): number;
+  moveBookDepth(): number;
+  moveBookPopulated(): number;
+  moveBookHit(): boolean;
   cacheGet(moves: Uint8Array): Int16Array;
   cacheLoad(data: Uint8Array): boolean;
   cacheSave(): Uint8Array;
@@ -69,7 +84,8 @@ type Engine = {
 };
 
 let engine: Engine | null = null;
-let bookFetch: AbortController | null = null;
+let scoreBookFetch: AbortController | null = null;
+let moveBookFetch: AbortController | null = null;
 
 async function boot(): Promise<Engine> {
   const wasm = await import("./pkg/engine.js");
@@ -131,9 +147,25 @@ function readHit(
   };
 }
 
-function cancelBookFetch(): void {
-  bookFetch?.abort();
-  bookFetch = null;
+function cancelScoreBookFetch(): void {
+  scoreBookFetch?.abort();
+  scoreBookFetch = null;
+}
+
+function cancelMoveBookFetch(): void {
+  moveBookFetch?.abort();
+  moveBookFetch = null;
+}
+
+function ready(id: number, eng: Engine): WorkerRes {
+  return {
+    id,
+    type: "ready",
+    bookLen: eng.bookLen(),
+    bookDepth: eng.bookDepth(),
+    moveBookPopulated: eng.moveBookPopulated(),
+    moveBookDepth: eng.moveBookDepth(),
+  };
 }
 
 self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
@@ -144,12 +176,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       if (!engine) engine = await boot();
       engine.setTimeoutMs(msg.timeoutMs);
       await loadPersisted(engine);
-      reply({
-        id: msg.id,
-        type: "ready",
-        bookLen: engine.bookLen(),
-        bookDepth: engine.bookDepth(),
-      });
+      reply(ready(msg.id, engine));
       return;
     }
     if (!engine) {
@@ -157,45 +184,61 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       return;
     }
     switch (msg.type) {
-      case "fetchBook": {
-        cancelBookFetch();
+      case "fetchScoreBook": {
+        cancelScoreBookFetch();
         const request = new AbortController();
-        bookFetch = request;
+        scoreBookFetch = request;
         try {
           const res = await fetch(msg.url, { signal: request.signal });
-          if (!res.ok) throw new Error(`Opening book download failed (${res.status})`);
+          if (!res.ok) throw new Error(`Score book download failed (${res.status})`);
           const bytes = new Uint8Array(await res.arrayBuffer());
           // Off/on toggles or another download can supersede this request.
-          if (bookFetch === request && !engine.loadBook(bytes)) {
-            throw new Error("Invalid opening book download");
+          if (scoreBookFetch === request && !engine.loadBook(bytes)) {
+            throw new Error("Invalid score book download");
           }
         } catch (e) {
           if (!request.signal.aborted) throw e;
         } finally {
-          if (bookFetch === request) bookFetch = null;
+          if (scoreBookFetch === request) scoreBookFetch = null;
         }
-        reply({ id: msg.id, type: "ready", bookLen: engine.bookLen(), bookDepth: engine.bookDepth() });
+        reply(ready(msg.id, engine));
         break;
       }
-      case "loadBook":
-        cancelBookFetch();
-        if (!engine.loadBook(new Uint8Array(msg.bytes))) throw new Error("Invalid opening book");
-        reply({
-          id: msg.id,
-          type: "ready",
-          bookLen: engine.bookLen(),
-          bookDepth: engine.bookDepth(),
-        });
+      case "fetchMoveBook": {
+        cancelMoveBookFetch();
+        const request = new AbortController();
+        moveBookFetch = request;
+        try {
+          const res = await fetch(msg.url, { signal: request.signal });
+          if (!res.ok) throw new Error(`Move book download failed (${res.status})`);
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          if (moveBookFetch === request && !engine.loadMoveBook(bytes)) {
+            throw new Error("Invalid move book download");
+          }
+        } catch (e) {
+          if (!request.signal.aborted) throw e;
+        } finally {
+          if (moveBookFetch === request) moveBookFetch = null;
+        }
+        reply(ready(msg.id, engine));
         break;
-      case "clearBook":
-        cancelBookFetch();
+      }
+      case "loadScoreBook":
+        cancelScoreBookFetch();
+        if (!engine.loadBook(new Uint8Array(msg.bytes))) throw new Error("Invalid score book");
+        reply(ready(msg.id, engine));
+        break;
+      case "loadMoveBook":
+        cancelMoveBookFetch();
+        if (!engine.loadMoveBook(new Uint8Array(msg.bytes))) throw new Error("Invalid move book");
+        reply(ready(msg.id, engine));
+        break;
+      case "clearDownloadedBooks":
+        cancelScoreBookFetch();
+        cancelMoveBookFetch();
         engine.clearBook();
-        reply({
-          id: msg.id,
-          type: "ready",
-          bookLen: engine.bookLen(),
-          bookDepth: engine.bookDepth(),
-        });
+        engine.clearMoveBook();
+        reply(ready(msg.id, engine));
         break;
       case "setTimeout":
         engine.setTimeoutMs(msg.ms);
@@ -290,6 +333,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
             micros: 0,
             timedOut: false,
             fromCache: true,
+            fromMoveBook: false,
             key,
           });
           break;
@@ -298,7 +342,8 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const nodes = engine.nodeCount();
         const micros = nodes === 0 ? 0 : engine.micros();
         const timedOut = engine.timedOut();
-        schedulePersist(engine);
+        const fromMoveBook = engine.moveBookHit();
+        if (!fromMoveBook) schedulePersist(engine);
         reply({
           id: msg.id,
           type: "moved",
@@ -308,6 +353,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           micros,
           timedOut,
           fromCache: false,
+          fromMoveBook,
           key,
         });
         break;

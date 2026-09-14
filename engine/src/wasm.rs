@@ -32,6 +32,16 @@ impl WasmEngine {
         self.solver.clear_book();
     }
 
+    #[wasm_bindgen(js_name = loadMoveBook)]
+    pub fn load_move_book(&mut self, data: &[u8]) -> bool {
+        self.solver.load_move_book(data).is_ok()
+    }
+
+    #[wasm_bindgen(js_name = clearMoveBook)]
+    pub fn clear_move_book(&mut self) {
+        self.solver.clear_move_book();
+    }
+
     #[wasm_bindgen(js_name = resetTt)]
     pub fn reset_tt(&mut self) {
         self.solver.reset();
@@ -55,6 +65,27 @@ impl WasmEngine {
     #[wasm_bindgen(js_name = bookLen)]
     pub fn book_len(&self) -> u32 {
         self.solver.book().len() as u32
+    }
+
+    #[wasm_bindgen(js_name = moveBookDepth)]
+    pub fn move_book_depth(&self) -> u8 {
+        self.solver
+            .move_book()
+            .map(|book| book.max_ply())
+            .unwrap_or(0)
+    }
+
+    #[wasm_bindgen(js_name = moveBookPopulated)]
+    pub fn move_book_populated(&self) -> u32 {
+        self.solver
+            .move_book()
+            .map(|book| book.populated())
+            .unwrap_or(0)
+    }
+
+    #[wasm_bindgen(js_name = moveBookHit)]
+    pub fn move_book_hit(&self) -> bool {
+        self.solver.move_book_hit()
     }
 
     /// Unique 49-bit key as a string.
@@ -118,21 +149,14 @@ impl WasmEngine {
     }
 
     /// 0-based column, or 255 if none.
-    /// The empty 7×6 board has a unique winning first move (center).
-    /// Return it immediately so a computer seat does not wait on a full solve.
     #[wasm_bindgen(js_name = bestMove)]
     pub fn best_move(&mut self, moves: &[u8]) -> u8 {
-        if moves.is_empty() {
-            return 3;
-        }
+        self.solver.reset_nodes();
         let mut p = Position::new();
         if !p.play_moves(moves) {
             return 255;
         }
-        self.solver
-            .best_move(p)
-            .map(|(c, _, _)| c as u8)
-            .unwrap_or(255)
+        self.solver.select_move(p).map(|c| c as u8).unwrap_or(255)
     }
 
     pub fn micros(&self) -> f64 {

@@ -1,4 +1,6 @@
 use engine::book::Book;
+use engine::move_book::MoveBook;
+use engine::move_book_gen::{from_scores, validate};
 use engine::position::{Position, WIDTH};
 use engine::solver::{winning_move_number, Solver, INVALID_MOVE};
 use std::env;
@@ -19,8 +21,10 @@ Usage:
                                   run a Pons-style test file (seq score)
   c4solver empty [--book FILE] [--no-mirror]
   c4solver gen-book --depth N --out FILE [--from FILE] [--tt-bits N] [--threads N]
+  c4solver gen-move-book --scores FILE --out FILE
+  c4solver validate-move-book --scores FILE --book FILE
 
-If --out already exists, it is loaded and generation continues from it
+For gen-book, if --out already exists, generation continues from it
 (same as --from FILE). Already-scored positions are not re-solved.
 
 MOVES is a string of digits 1-7, e.g. 444526. Empty string = empty board.
@@ -88,6 +92,7 @@ fn positional_seq(args: &[String]) -> &str {
             || a == "--depth"
             || a == "--limit"
             || a == "--threads"
+            || a == "--scores"
         {
             skip_val = true;
             continue;
@@ -313,11 +318,7 @@ fn main() {
             let out_path = out.clone();
             let mut last_saved = start_len;
             solver.fill_book_with(Position::new(), depth, &mut book, threads, |b| {
-                eprint!(
-                    "\r{} positions (target depth {})\x1b[K",
-                    b.len(),
-                    depth
-                );
+                eprint!("\r{} positions (target depth {})\x1b[K", b.len(), depth);
                 let _ = io::stderr().flush();
                 if b.len().saturating_sub(last_saved) >= 10 {
                     if fs::write(&out_path, b.save()).is_ok() {
@@ -334,8 +335,48 @@ fn main() {
                 book.depth()
             );
         }
+        "gen-move-book" | "validate-move-book" => {
+            run_move_book(&args).unwrap_or_else(|error| {
+                eprintln!("move book: {error}");
+                process::exit(1);
+            });
+        }
         _ => usage(),
     }
+}
+
+fn arg_value<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+    args.windows(2)
+        .find(|window| window[0] == name)
+        .map(|window| window[1].as_str())
+}
+
+fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let started = std::time::Instant::now();
+    let source = arg_value(args, "--scores").unwrap_or("books/10ply.c4book");
+    let scores = Book::load(&fs::read(source)?)?;
+    let generating = args[0] == "gen-move-book";
+    let path =
+        arg_value(args, if generating { "--out" } else { "--book" }).unwrap_or("books/9ply.c4move");
+    let moves = if generating {
+        from_scores(&scores)?
+    } else {
+        MoveBook::load(&fs::read(path)?)?
+    };
+    let checked = validate(&scores, &moves)?;
+    let bytes = moves.save();
+    if generating {
+        fs::write(path, &bytes)?;
+    }
+    println!(
+        "{} {path}: {} bytes, {checked} positions through ply {}, {} populated slots, {:.3}s",
+        if generating { "wrote" } else { "verified" },
+        bytes.len(),
+        moves.max_ply(),
+        moves.populated(),
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
 }
 
 fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {

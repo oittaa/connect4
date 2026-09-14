@@ -47,6 +47,13 @@ impl Book {
         self.keys.len()
     }
 
+    pub fn entries(&self) -> impl Iterator<Item = (u64, i32)> + '_ {
+        self.keys
+            .iter()
+            .copied()
+            .zip(self.scores.iter().map(|&s| s as i32))
+    }
+
     /// Preserve fallback coverage without replacing entries in this book.
     pub(crate) fn fill_missing(&mut self, fallback: &Self) {
         if self.is_empty() {

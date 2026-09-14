@@ -183,9 +183,10 @@ export function parseMoveString(s: string): number[] | null {
   }
   const g = emptyGrid();
   let p: Player = 1;
-  for (const col of moves) {
+  for (const [i, col] of moves.entries()) {
     if (g.height[col] >= HEIGHT) return null;
-    drop(g, col, p);
+    const row = drop(g, col, p);
+    if (winningCells(g, row, col)) return moves.slice(0, i + 1);
     p = (3 - p) as Player;
   }
   return moves;
