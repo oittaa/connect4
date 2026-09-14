@@ -472,6 +472,7 @@ fn read_three_bits(data: &[u8], slot: usize) -> u8 {
 fn write_three_bits_min(data: &mut [u8], slot: usize, value: u8) -> bool {
     debug_assert!(value < UNKNOWN_MOVE);
     let old = read_three_bits(data, slot);
+    let newly_populated = old == UNKNOWN_MOVE;
     let value = old.min(value);
     if value == old {
         return false;
@@ -488,7 +489,7 @@ fn write_three_bits_min(data: &mut [u8], slot: usize, value: u8) -> bool {
     if shift > 5 {
         data[byte + 1] = (word >> 8) as u8;
     }
-    true
+    newly_populated
 }
 
 fn validate_padding(data: &[u8], slots: u32) -> Result<(), String> {

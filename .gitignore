@@ -9,6 +9,11 @@ web/node_modules
 web/dist
 web/src/pkg
 
+# Resumable move-book generation sidecars
+books/*.c4move.progress
+books/*.c4move.cert.tsv
+books/*.c4move.tmp
+
 # OS / editor
 .DS_Store
 *.swp
