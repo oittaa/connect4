@@ -2,6 +2,7 @@
 /// <reference types="vite/client" />
 
 import { cacheLoad, cacheSave } from "./cache";
+import { WIDTH } from "./game";
 
 export type WorkerReq =
   | { id: number; type: "init"; timeoutMs: number }
@@ -350,7 +351,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           id: msg.id,
           type: "moved",
           col,
-          scores: bookScores.length === 7 ? bookScores : [],
+          scores: bookScores.length === WIDTH ? bookScores : [],
           nodes,
           micros,
           timedOut,
