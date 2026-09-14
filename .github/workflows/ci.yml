@@ -46,6 +46,6 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
         working-directory: web
-      - name: Test leftover computer status
+      - name: Test browser
         run: npm run test:browser
         working-directory: web

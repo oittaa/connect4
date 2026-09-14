@@ -25,6 +25,10 @@
           <div class="turn-status"><span class="turn-dot" aria-hidden="true"></span><p id="status" class="status" aria-live="polite">Red to move</p></div>
           <span id="move-count" class="move-count">Move 1</span>
         </div>
+        <div id="solver-alert" class="solver-alert" hidden role="alert">
+          <p id="solver-alert-text">The solver failed. Reload to try again.</p>
+          <button type="button" id="solver-reload" class="button button-quiet">Reload</button>
+        </div>
         <div class="board-wrap">
           <div id="scores" class="scores" aria-label="Column scores" hidden></div>
           <div id="board" class="board" role="grid" aria-label="Connect 4 board"></div>
