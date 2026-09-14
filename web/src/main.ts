@@ -243,9 +243,12 @@ function applyHintComputer(event: HintSessionEvent, animateLast: boolean): void 
     analysis = null;
   }
   if (plan.requestAnalyze) analyzing = true;
+  // Apply computer cancel/pause/thinking before painting. Scheduling used to
+  // run after render, so switching the last computer to Human left "thinking"
+  // or "Paused" on screen after those flags were already cleared.
+  if (plan.scheduleComputer) scheduleComputer();
   renderBoard(animateLast);
   if (plan.requestAnalyze) void requestAnalyze();
-  if (plan.scheduleComputer) scheduleComputer();
 }
 
 let cpuTimer = 0;
@@ -282,10 +285,7 @@ function scheduleComputer(): void {
     engineLine.textContent = "Waiting for solver…";
     return;
   }
-  if (plan.type === "engine") {
-    thinking = true;
-    renderBoard(false);
-  }
+  if (plan.type === "engine") thinking = true;
   const turn: PendingComputerTurn = { generation: cpuGeneration, role, moves, plan };
   cpuTimer = window.setTimeout(() => {
     void executeComputerTurn(turn);
