@@ -11,8 +11,8 @@ async function setPace(page: Page, ms: number): Promise<void> {
 
 async function waitSolverAndBooks(page: Page): Promise<void> {
   await expect(page.locator("#engine-line")).toHaveText(/Solver ready/i, { timeout: 60_000 });
-  await expect(page.locator("#book-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
-  await expect(page.locator("#book-line")).toContainText(/move book [1-9]/, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).toContainText(/move book [1-9]/, { timeout: 60_000 });
 }
 
 async function expectCurrentAnalysis(page: Page): Promise<void> {
@@ -26,8 +26,8 @@ async function expectCurrentAnalysis(page: Page): Promise<void> {
 }
 
 async function expectBooksStillLoaded(page: Page): Promise<void> {
-  await expect(page.locator("#book-line")).toContainText(/move book [1-9]/);
-  await expect(page.locator("#book-line")).not.toContainText(/Downloading/);
+  await expect(page.locator("#books-line")).toContainText(/move book [1-9]/);
+  await expect(page.locator("#books-line")).not.toContainText(/Downloading/);
 }
 
 test.describe("stale search restart", () => {
@@ -95,7 +95,7 @@ test.describe("stale search restart", () => {
     await expectBooksStillLoaded(page);
   });
 
-  test("book-hit Perfect still moves immediately when no search is in flight", async ({ page }) => {
+  test("move-book-hit Perfect still moves immediately when no search is in flight", async ({ page }) => {
     await page.goto("/connect4/#moves=44444222&DEBUG");
     await waitSolverAndBooks(page);
     await setPace(page, 0);

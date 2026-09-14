@@ -22,14 +22,14 @@ impl WasmEngine {
         self.solver.set_timeout_ms(ms);
     }
 
-    #[wasm_bindgen(js_name = loadBook)]
-    pub fn load_book(&mut self, data: &[u8]) -> bool {
-        self.solver.load_book(data).is_ok()
+    #[wasm_bindgen(js_name = loadScoreBook)]
+    pub fn load_score_book(&mut self, data: &[u8]) -> bool {
+        self.solver.load_score_book(data).is_ok()
     }
 
-    #[wasm_bindgen(js_name = clearBook)]
-    pub fn clear_book(&mut self) {
-        self.solver.clear_book();
+    #[wasm_bindgen(js_name = clearScoreBook)]
+    pub fn clear_score_book(&mut self) {
+        self.solver.clear_score_book();
     }
 
     #[wasm_bindgen(js_name = loadMoveBook)]
@@ -57,25 +57,25 @@ impl WasmEngine {
         self.solver.timed_out()
     }
 
-    #[wasm_bindgen(js_name = bookDepth)]
-    pub fn book_depth(&self) -> u8 {
-        self.solver.book().depth()
+    #[wasm_bindgen(js_name = scoreBookDepth)]
+    pub fn score_book_depth(&self) -> u8 {
+        self.solver.score_book().depth()
     }
 
-    #[wasm_bindgen(js_name = bookLen)]
-    pub fn book_len(&self) -> u32 {
-        self.solver.book().len() as u32
+    #[wasm_bindgen(js_name = scoreBookLen)]
+    pub fn score_book_len(&self) -> u32 {
+        self.solver.score_book().len() as u32
     }
 
     /// Seven column scores from the score book, or empty if any child is missing.
     /// Does not reset search stats; call after `bestMove`.
-    #[wasm_bindgen(js_name = bookColumnScores)]
-    pub fn book_column_scores(&self, moves: &[u8]) -> Vec<i16> {
+    #[wasm_bindgen(js_name = scoreBookColumnScores)]
+    pub fn score_book_column_scores(&self, moves: &[u8]) -> Vec<i16> {
         let mut p = Position::new();
         if !p.play_moves(moves) {
             return Vec::new();
         }
-        match self.solver.column_scores_from_book(&p) {
+        match self.solver.column_scores_from_score_book(&p) {
             Some(scores) => scores.iter().map(|&s| s as i16).collect(),
             None => Vec::new(),
         }
@@ -100,7 +100,7 @@ impl WasmEngine {
     pub fn move_book_depth(&self) -> u8 {
         self.solver
             .move_book()
-            .map(|book| book.max_ply())
+            .map(|move_book| move_book.max_ply())
             .unwrap_or(0)
     }
 
@@ -108,7 +108,7 @@ impl WasmEngine {
     pub fn move_book_populated(&self) -> u32 {
         self.solver
             .move_book()
-            .map(|book| book.populated())
+            .map(|move_book| move_book.populated())
             .unwrap_or(0)
     }
 

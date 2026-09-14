@@ -76,9 +76,9 @@
             <span class="toggle-copy"><span class="option-title">Show best moves</span></span>
             <input type="checkbox" id="analyze" class="toggle-input" role="switch" /><span class="toggle-track" aria-hidden="true"></span>
           </label>
-          <label class="toggle-row" id="opening-book-option" hidden>
-            <span class="toggle-copy"><span class="option-title">Opening book</span><span class="option-description">A head start for the first moves.</span></span>
-            <input type="checkbox" id="book" class="toggle-input" role="switch" checked /><span class="toggle-track" aria-hidden="true"></span>
+          <label class="toggle-row" id="downloaded-books-option" hidden>
+            <span class="toggle-copy"><span class="option-title">Score and move books</span><span class="option-description">A head start for the first moves.</span></span>
+            <input type="checkbox" id="books" class="toggle-input" role="switch" checked /><span class="toggle-track" aria-hidden="true"></span>
           </label>
         </section>
         <section class="settings-section pace-section" aria-label="Computer timing">
@@ -91,7 +91,7 @@
     </div>
     <footer id="engine-diagnostics" class="page-footer" hidden>
       <p id="engine-line" class="engine-line" role="status">Getting the solver ready…</p>
-      <p id="book-line" class="engine-line" role="status"></p>
+      <p id="books-line" class="engine-line" role="status"></p>
     </footer>
   </main>
   <script type="module" src="/src/main.ts"></script>

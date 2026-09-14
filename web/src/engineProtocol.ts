@@ -27,8 +27,8 @@ export type WorkerRes =
   | {
       id: number;
       type: "ready";
-      bookLen: number;
-      bookDepth: number;
+      scoreBookLen: number;
+      scoreBookDepth: number;
       moveBookPopulated: number;
       moveBookDepth: number;
     }

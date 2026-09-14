@@ -23,7 +23,7 @@ async function openApp(page: Page, moves = ""): Promise<void> {
   });
   await page.goto(`/connect4/#moves=${moves}&DEBUG`);
   await expect(page.locator("#engine-line")).toHaveText(/Solver ready/i, { timeout: 60_000 });
-  await expect(page.locator("#book-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
   await page.locator("#delay").evaluate((el) => {
     const input = el as HTMLInputElement;
     input.value = "1500";
@@ -79,7 +79,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
 }
 
 for (const role of ["easy", "medium", "perfect"]) {
-  test(`${role} vs ${role} shows book scores on both turns without full analysis`, async ({ page }) => {
+  test(`${role} vs ${role} shows score-book scores on both turns without full analysis`, async ({ page }) => {
     await openApp(page);
     await setRole(page, 1, role);
     await setRole(page, 0, role);
@@ -159,7 +159,7 @@ test("partial computer hints do not suppress full analysis after switching to Hu
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
 });
 
-test("missing frontier ranks stay hidden without delaying the compact-book move", async ({ page }) => {
+test("missing frontier ranks stay hidden without delaying the move-book move", async ({ page }) => {
   await openApp(page, "44444222");
   const box = await boardBox(page);
   await setRole(page, 1, "perfect");
@@ -173,7 +173,7 @@ test("missing frontier ranks stay hidden without delaying the compact-book move"
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
 });
 
-test("a late book-score reply cannot restore hints after switching them off", async ({ page }) => {
+test("a late score-book reply cannot restore hints after switching them off", async ({ page }) => {
   await openApp(page);
   await setRole(page, 0, "perfect");
   await page.evaluate(() => { (window as any).hintTest.hold = true; });

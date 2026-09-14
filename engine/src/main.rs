@@ -1,7 +1,9 @@
-use engine::book::Book;
+use engine::book_io::write_atomic;
 use engine::move_book::MoveBook;
-use engine::move_book_gen::{from_scores, validate};
+use engine::move_book_gen::{generate, GenerateOptions};
 use engine::position::Position;
+use engine::score_book::ScoreBook;
+use engine::score_to_move::{convert_score_to_move, validate_against_score_book};
 use engine::solver::{winning_move_number, Solver, INVALID_MOVE};
 use std::env;
 use std::fs;
@@ -17,15 +19,22 @@ c4solver — perfect Connect 4
 Usage:
   c4solver solve [MOVES]          score a position (1-based column digits)
   c4solver analyze [MOVES]        score each legal column
-  c4solver bench [--book FILE] [--limit N] [--no-mirror] FILE
+  c4solver bench [--score-book FILE] [--limit N] [--no-mirror] FILE
                                   run a Pons-style test file (seq score)
-  c4solver empty [--book FILE] [--no-mirror]
-  c4solver gen-book --depth N --out FILE [--from FILE] [--tt-bits N] [--threads N]
-  c4solver gen-move-book --scores FILE --out FILE
-  c4solver validate-move-book --scores FILE --book FILE
+  c4solver empty [--score-book FILE] [--no-mirror]
+  c4solver gen-score-book --depth N --out FILE [--from-score-book FILE] [--tt-bits N] [--threads N]
+  c4solver convert-score-to-move --score-book FILE --out FILE
+  c4solver gen-move-book --depth N --out FILE [--score-book FILE] [--from-move-book FILE]
+                         [--tt-bits N] [--threads N] [--max-jobs N]
+  c4solver validate-move-book --score-book FILE --move-book FILE
 
-For gen-book, if --out already exists, generation continues from it
-(same as --from FILE). Already-scored positions are not re-solved.
+For gen-score-book, if --out already exists, generation continues from it
+(same as --from-score-book FILE). Already-scored positions are not re-solved.
+gen-move-book searches missing frontier positions and derives earlier moves from
+their scores. It resumes from FILE.checkpoint; --max-jobs bounds a run without
+publishing an incomplete move book. The default score book is the embedded 4-ply.
+Move-book depth is the stored position ply: --depth 11 supplies moves through 12.
+Conversion and validation require a score book one ply deeper than the move book.
 
 MOVES is a string of digits 1-7, e.g. 444526. Empty string = empty board.
 --no-mirror disables left-right TT canonicalization.
@@ -86,13 +95,15 @@ fn positional_seq(args: &[String]) -> &str {
             continue;
         }
         if a == "--tt-bits"
-            || a == "--book"
-            || a == "--from"
+            || a == "--score-book"
+            || a == "--from-score-book"
             || a == "--out"
             || a == "--depth"
             || a == "--limit"
             || a == "--threads"
-            || a == "--scores"
+            || a == "--move-book"
+            || a == "--from-move-book"
+            || a == "--max-jobs"
         {
             skip_val = true;
             continue;
@@ -105,20 +116,20 @@ fn positional_seq(args: &[String]) -> &str {
     ""
 }
 
-fn load_book_opt(solver: &mut Solver, path: Option<&str>) {
+fn load_score_book_opt(solver: &mut Solver, path: Option<&str>) {
     if let Some(p) = path {
         let bytes = fs::read(p).unwrap_or_else(|e| {
-            eprintln!("cannot read book {p}: {e}");
+            eprintln!("cannot read score book {p}: {e}");
             process::exit(1);
         });
-        solver.load_book(&bytes).unwrap_or_else(|e| {
-            eprintln!("bad book: {e}");
+        solver.load_score_book(&bytes).unwrap_or_else(|e| {
+            eprintln!("bad score book: {e}");
             process::exit(1);
         });
         eprintln!(
-            "loaded book {p}: {} positions, depth {}",
-            solver.book().len(),
-            solver.book().depth()
+            "loaded score book {p}: {} positions, depth {}",
+            solver.score_book().len(),
+            solver.score_book().depth()
         );
     }
 }
@@ -135,11 +146,11 @@ fn main() {
             let pos = parse_moves(seq);
             let r = solver.solve(pos);
             println!(
-                "score {}  nodes {}  {:.3}s  book={} timeout={}",
+                "score {}  nodes {}  {:.3}s  score_book={} timeout={}",
                 r.score,
                 r.nodes,
                 r.micros as f64 / 1e6,
-                r.from_book,
+                r.from_score_book,
                 r.timed_out
             );
             if let Some(n) = winning_move_number(r.score) {
@@ -167,22 +178,22 @@ fn main() {
             );
         }
         "empty" => {
-            let mut book_path = None;
-            let mut write_book: Option<&str> = None;
+            let mut score_book_path = None;
+            let mut write_score_book: Option<&str> = None;
             let mut i = 1;
             while i < args.len() {
-                if args[i] == "--book" {
-                    book_path = Some(args[i + 1].as_str());
+                if args[i] == "--score-book" {
+                    score_book_path = Some(args[i + 1].as_str());
                     i += 2;
-                } else if args[i] == "--write-book" {
-                    write_book = Some(args[i + 1].as_str());
+                } else if args[i] == "--write-score-book" {
+                    write_score_book = Some(args[i + 1].as_str());
                     i += 2;
                 } else {
                     i += 1;
                 }
             }
             let mut solver = make_solver(&args);
-            load_book_opt(&mut solver, book_path);
+            load_score_book_opt(&mut solver, score_book_path);
             let pos = Position::new();
             eprintln!("solving empty board (first winning move)…");
             let start = std::time::Instant::now();
@@ -190,11 +201,11 @@ fn main() {
             let dt = start.elapsed();
             println!("best_column {} (1-based {})", col, col + 1);
             println!(
-                "score {}  nodes {}  {:.3}s  book={} timeout={}",
+                "score {}  nodes {}  {:.3}s  score_book={} timeout={}",
                 r.score,
                 r.nodes,
                 dt.as_secs_f64(),
-                r.from_book,
+                r.from_score_book,
                 r.timed_out
             );
             print!("columns:");
@@ -206,33 +217,30 @@ fn main() {
                 }
             }
             println!();
-            if let Some(path) = write_book {
-                let mut book = Book::new();
-                book.insert(pos.key(), r.score as i8, 0);
+            if let Some(path) = write_score_book {
+                let mut score_book = ScoreBook::new();
+                score_book.insert(pos.key3(), r.score as i8, 0);
                 for (c, &score) in scores.iter().enumerate() {
                     if score == INVALID_MOVE {
                         continue;
                     }
                     let mut child = pos;
                     child.play_col(c);
-                    book.insert(child.key(), (-score) as i8, 1);
+                    score_book.insert(child.key3(), (-score) as i8, 1);
                 }
-                if let Some(dir) = Path::new(path).parent() {
-                    fs::create_dir_all(dir).ok();
-                }
-                fs::write(path, book.save()).unwrap();
-                eprintln!("wrote {path}: {} positions", book.len());
+                write_atomic(Path::new(path), &score_book.save()).unwrap();
+                eprintln!("wrote {path}: {} positions", score_book.len());
             }
         }
         "bench" => {
-            let mut book_path = None;
+            let mut score_book_path = None;
             let mut limit = usize::MAX;
             let mut file = None;
             let mut i = 1;
             while i < args.len() {
                 match args[i].as_str() {
-                    "--book" => {
-                        book_path = Some(args[i + 1].as_str());
+                    "--score-book" => {
+                        score_book_path = Some(args[i + 1].as_str());
                         i += 2;
                     }
                     "--limit" => {
@@ -248,96 +256,17 @@ fn main() {
             }
             let file = file.unwrap_or_else(|| usage());
             let mut solver = make_solver(&args);
-            load_book_opt(&mut solver, book_path);
+            load_score_book_opt(&mut solver, score_book_path);
             run_bench(&mut solver, Path::new(file), limit);
         }
-        "gen-book" => {
-            let mut depth = 4u8;
-            let mut out = "books/opening.c4book".to_string();
-            let mut i = 1;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--depth" => {
-                        depth = args[i + 1].parse().unwrap();
-                        i += 2;
-                    }
-                    "--out" => {
-                        out = args[i + 1].clone();
-                        i += 2;
-                    }
-                    _ => i += 1,
-                }
-            }
-            let mut from: Option<String> = None;
-            let mut j = 1;
-            while j < args.len() {
-                if args[j] == "--from" && j + 1 < args.len() {
-                    from = Some(args[j + 1].clone());
-                }
-                j += 1;
-            }
-            let load_path = from.as_deref().unwrap_or(out.as_str());
-            let mut book = Book::new();
-            if Path::new(load_path).is_file() {
-                let bytes = fs::read(load_path).unwrap_or_else(|e| {
-                    eprintln!("cannot read {load_path}: {e}");
-                    process::exit(1);
-                });
-                book = Book::load(&bytes).unwrap_or_else(|e| {
-                    eprintln!("bad book {load_path}: {e}");
-                    process::exit(1);
-                });
-                eprintln!(
-                    "loaded {load_path}: {} positions, depth {}",
-                    book.len(),
-                    book.depth()
-                );
-                if book.depth() >= depth {
-                    eprintln!(
-                        "book is already depth {} (>= {depth}); nothing to do",
-                        book.depth()
-                    );
-                    if load_path != out {
-                        fs::create_dir_all(Path::new(&out).parent().unwrap_or(Path::new("."))).ok();
-                        fs::write(&out, book.save()).unwrap();
-                    }
-                    return;
-                }
-            }
-            let mut solver = make_solver(&args);
-            solver.set_book(book.clone());
-            let start_len = book.len();
-            let threads = thread_count(&args);
-            eprintln!(
-                "generating to depth {depth} ({} already stored), {threads} threads. Checkpointing {out}",
-                book.len()
-            );
-            if let Some(dir) = Path::new(&out).parent() {
-                fs::create_dir_all(dir).ok();
-            }
-            let out_path = out.clone();
-            let mut last_saved = start_len;
-            solver.fill_book_with(Position::new(), depth, &mut book, threads, |b| {
-                eprint!("\r{} positions (target depth {})\x1b[K", b.len(), depth);
-                let _ = io::stderr().flush();
-                if b.len().saturating_sub(last_saved) >= 10
-                    && fs::write(&out_path, b.save()).is_ok()
-                {
-                    last_saved = b.len();
-                }
-            });
-            eprintln!();
-            fs::write(&out, book.save()).unwrap();
-            eprintln!(
-                "wrote {out}: {} positions ({} new), depth {}",
-                book.len(),
-                book.len().saturating_sub(start_len),
-                book.depth()
-            );
-        }
-        "gen-move-book" | "validate-move-book" => {
-            run_move_book(&args).unwrap_or_else(|error| {
-                eprintln!("move book: {error}");
+        "gen-score-book" | "gen-move-book" | "convert-score-to-move" | "validate-move-book" => {
+            let result = if args[0] == "gen-score-book" {
+                run_score_book(&args)
+            } else {
+                run_move_book(&args)
+            };
+            result.unwrap_or_else(|error| {
+                eprintln!("{}: {error}", args[0]);
                 process::exit(1);
             });
         }
@@ -351,31 +280,184 @@ fn arg_value<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
         .map(|window| window[1].as_str())
 }
 
+fn required_arg<'a>(args: &'a [String], name: &str) -> Result<&'a str, String> {
+    arg_value(args, name)
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| format!("missing {name}; run c4solver for usage"))
+}
+
+fn run_score_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    validate_options(
+        args,
+        &[
+            "--depth",
+            "--out",
+            "--from-score-book",
+            "--tt-bits",
+            "--threads",
+        ],
+    )?;
+    let depth: u8 = required_arg(args, "--depth")?.parse()?;
+    let out = required_arg(args, "--out")?;
+    let source = arg_value(args, "--from-score-book");
+    let load_path = source.unwrap_or(out);
+    let mut score_book = if source.is_some() || Path::new(load_path).is_file() {
+        ScoreBook::load(&fs::read(load_path)?)?
+    } else {
+        ScoreBook::new()
+    };
+    let mut solver = make_solver(args);
+    solver.set_score_book(score_book.clone());
+    let start_len = score_book.len();
+    let threads = thread_count(args);
+    eprintln!(
+        "generating score book to ply {depth}, {start_len} existing positions, {threads} threads"
+    );
+    let mut saved_at = std::time::Instant::now();
+    let mut reported_at = saved_at;
+    solver.fill_score_book_with(
+        Position::new(),
+        depth,
+        &mut score_book,
+        threads,
+        |score_book| {
+            if reported_at.elapsed().as_secs() >= 1 {
+                eprintln!("{} scored positions", score_book.len());
+                reported_at = std::time::Instant::now();
+            }
+            if saved_at.elapsed().as_secs() >= 30 {
+                if let Err(error) = write_atomic(Path::new(out), &score_book.save()) {
+                    eprintln!("cannot checkpoint {out}: {error}");
+                }
+                saved_at = std::time::Instant::now();
+            }
+        },
+    );
+    write_atomic(Path::new(out), &score_book.save())?;
+    println!(
+        "wrote {out}: {} positions ({} new), depth {}",
+        score_book.len(),
+        score_book.len().saturating_sub(start_len),
+        score_book.depth()
+    );
+    Ok(())
+}
+
 fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let started = std::time::Instant::now();
-    let source = arg_value(args, "--scores").unwrap_or("books/10ply.c4book");
-    let scores = Book::load(&fs::read(source)?)?;
     let generating = args[0] == "gen-move-book";
-    let path =
-        arg_value(args, if generating { "--out" } else { "--book" }).unwrap_or("books/9ply.c4move");
-    let moves = if generating {
-        from_scores(&scores)?
+    let validating = args[0] == "validate-move-book";
+    validate_options(
+        args,
+        if generating {
+            &[
+                "--depth",
+                "--out",
+                "--score-book",
+                "--from-move-book",
+                "--threads",
+                "--tt-bits",
+                "--max-jobs",
+            ]
+        } else if validating {
+            &["--score-book", "--move-book"]
+        } else {
+            &["--score-book", "--out"]
+        },
+    )?;
+    let path = required_arg(args, if validating { "--move-book" } else { "--out" })?;
+    let score_book = if let Some(source) = arg_value(args, "--score-book") {
+        ScoreBook::load(&fs::read(source)?)?
+    } else if generating {
+        ScoreBook::opening_4ply()
     } else {
-        MoveBook::load(&fs::read(path)?)?
+        return Err("missing --score-book".into());
     };
-    let checked = validate(&scores, &moves)?;
-    let bytes = moves.save();
-    if generating {
-        fs::write(path, &bytes)?;
+    let move_book = if generating {
+        let options = GenerateOptions {
+            max_ply: required_arg(args, "--depth")?.parse()?,
+            threads: thread_count(args),
+            tt_bits: tt_bits(args),
+            max_jobs: arg_value(args, "--max-jobs").map(str::parse).transpose()?,
+        };
+        let seed_move_book = arg_value(args, "--from-move-book")
+            .map(|source| -> Result<_, Box<dyn std::error::Error>> {
+                Ok(MoveBook::load(&fs::read(source)?)?)
+            })
+            .transpose()?;
+        let checkpoint = format!("{path}.checkpoint");
+        eprintln!(
+            "generating move book through ply {}, {} threads, TT 2^{} per thread",
+            options.max_ply, options.threads, options.tt_bits
+        );
+        let mut reported_at = started;
+        let result = generate(
+            &score_book,
+            seed_move_book.as_ref(),
+            &options,
+            Path::new(&checkpoint),
+            |done, total| {
+                if reported_at.elapsed().as_secs() >= 1 || done == total {
+                    eprintln!("{done}/{total} frontier positions complete");
+                    reported_at = std::time::Instant::now();
+                }
+            },
+        )?;
+        eprintln!(
+            "{} frontier positions searched, {} nodes",
+            result.searched, result.nodes
+        );
+        let Some(move_book) = result.move_book else {
+            println!("{} positions remain; resume with the same command. Saved {checkpoint}; no move book written.", result.pending);
+            return Ok(());
+        };
+        move_book
+    } else if validating {
+        MoveBook::load(&fs::read(path)?)?
+    } else {
+        convert_score_to_move(&score_book)?
+    };
+    if !generating {
+        let checked = validate_against_score_book(&score_book, &move_book)?;
+        eprintln!("verified {checked} source positions and their mirrors");
+    }
+    let bytes = move_book.save();
+    if !validating {
+        write_atomic(Path::new(path), &bytes)?;
     }
     println!(
-        "{} {path}: {} bytes, {checked} positions through ply {}, {} populated slots, {:.3}s",
-        if generating { "wrote" } else { "verified" },
+        "{} {path}: {} bytes, stored ply {}, instant moves through {}, {} populated slots, {:.3}s",
+        if validating { "verified" } else { "wrote" },
         bytes.len(),
-        moves.max_ply(),
-        moves.populated(),
+        move_book.max_ply(),
+        move_book.max_ply() + 1,
+        move_book.populated(),
         started.elapsed().as_secs_f64()
     );
+    Ok(())
+}
+
+fn validate_options(args: &[String], allowed: &[&str]) -> Result<(), String> {
+    for pair in args[1..].chunks(2) {
+        if !allowed.contains(&pair[0].as_str()) {
+            return Err(format!("unknown option {}", pair[0]));
+        }
+        if pair.len() != 2 || pair[1].starts_with("--") {
+            return Err(format!("missing value for {}", pair[0]));
+        }
+        if pair[0] == "--threads" && pair[1].parse::<usize>().ok().filter(|&n| n > 0).is_none() {
+            return Err("--threads must be a positive integer".into());
+        }
+        if pair[0] == "--tt-bits"
+            && pair[1]
+                .parse::<u32>()
+                .ok()
+                .filter(|n| (16..=27).contains(n))
+                .is_none()
+        {
+            return Err("--tt-bits must be between 16 and 27".into());
+        }
+    }
     Ok(())
 }
 

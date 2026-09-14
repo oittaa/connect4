@@ -1,4 +1,4 @@
-//! Compact opening book: sorted Pons `key3` values, binary search.
+//! Compact score book: sorted Pons `key3` values, binary search.
 //!
 //! `key3` is a mirrored base-3 encoding (smaller than the 49-bit bitboard key).
 //!
@@ -18,21 +18,21 @@ const VERSION: u8 = 2;
 const KEY_BYTES: u8 = 4;
 
 #[derive(Clone, Debug, Default)]
-pub struct Book {
+pub struct ScoreBook {
     depth: u8,
     keys: Vec<u64>,
     scores: Vec<i8>,
 }
 
-impl Book {
+impl ScoreBook {
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Small default book compiled into the engine; no network access needed.
+    /// Small default score book compiled into the engine; no network access needed.
     pub fn opening_4ply() -> Self {
         Self::load(include_bytes!("../../books/4ply.c4book"))
-            .expect("embedded 4-ply opening book must be valid")
+            .expect("embedded 4-ply score book must be valid")
     }
 
     pub fn is_empty(&self) -> bool {
@@ -98,13 +98,13 @@ impl Book {
 
     pub fn load(bytes: &[u8]) -> Result<Self, String> {
         if bytes.len() < 12 {
-            return Err("book too small".into());
+            return Err("score book too small".into());
         }
         if &bytes[0..4] != MAGIC {
             return Err("bad magic".into());
         }
         if bytes[4] != VERSION {
-            return Err(format!("unsupported book version {}", bytes[4]));
+            return Err(format!("unsupported score-book version {}", bytes[4]));
         }
         let depth = bytes[5];
         if bytes[6] != KEY_BYTES {
@@ -113,18 +113,18 @@ impl Book {
         let count = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
         let need = 12 + count * 5;
         if bytes.len() < need {
-            return Err("truncated book".into());
+            return Err("truncated score book".into());
         }
-        let mut book = Self::new();
+        let mut score_book = Self::new();
         let mut off = 12;
         for _ in 0..count {
             let key = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as u64;
             let score = bytes[off + 4] as i8;
-            book.insert(key, score, 0);
+            score_book.insert(key, score, 0);
             off += 5;
         }
-        book.depth = depth;
-        Ok(book)
+        score_book.depth = depth;
+        Ok(score_book)
     }
 
     pub fn save(&self) -> Vec<u8> {
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn opening_folds_mirrors() {
-        let b = Book::opening_4ply();
+        let b = ScoreBook::opening_4ply();
         assert_eq!(b.depth(), 4);
         assert_eq!(b.len(), 719);
         let mut left = Position::new();
@@ -164,29 +164,29 @@ mod tests {
     }
 
     #[test]
-    fn embedded_book_covers_every_position_through_four_plies() {
-        fn check(book: &Book, pos: Position) {
-            assert!(book.get(&pos).is_some(), "missing key {}", pos.key3());
+    fn embedded_score_book_covers_every_position_through_four_plies() {
+        fn check(score_book: &ScoreBook, pos: Position) {
+            assert!(score_book.get(&pos).is_some(), "missing key {}", pos.key3());
             if pos.moves() == 4 {
                 return;
             }
             for col in 0..7 {
                 let mut child = pos;
                 child.play_col(col);
-                check(book, child);
+                check(score_book, child);
             }
         }
-        check(&Book::opening_4ply(), Position::new());
+        check(&ScoreBook::opening_4ply(), Position::new());
     }
 
     #[test]
     fn roundtrip() {
-        let mut b = Book::new();
+        let mut b = ScoreBook::new();
         b.insert(1, 18, 0);
         b.insert(99, -3, 2);
         b.insert(5, 0, 1);
         let bytes = b.save();
-        let b2 = Book::load(&bytes).unwrap();
+        let b2 = ScoreBook::load(&bytes).unwrap();
         assert_eq!(b2.depth(), 2);
         assert_eq!(b2.len(), 3);
         let mut p = Position::new();
@@ -194,7 +194,7 @@ mod tests {
         assert!(b2.get(&p).is_none());
         p.play_col(3);
         // just checks load/save integrity
-        let b3 = Book::load(&bytes).unwrap();
+        let b3 = ScoreBook::load(&bytes).unwrap();
         assert_eq!(b3.save(), bytes);
     }
 }

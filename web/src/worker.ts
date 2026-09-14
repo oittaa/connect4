@@ -13,14 +13,14 @@ type Engine = {
   nodeCount(): number;
   timedOut(): boolean;
   micros(): number;
-  loadBook(data: Uint8Array): boolean;
-  clearBook(): void;
+  loadScoreBook(data: Uint8Array): boolean;
+  clearScoreBook(): void;
   loadMoveBook(data: Uint8Array): boolean;
   clearMoveBook(): void;
   setTimeoutMs(ms: number): void;
   resetTt(): void;
-  bookLen(): number;
-  bookDepth(): number;
+  scoreBookLen(): number;
+  scoreBookDepth(): number;
   moveBookDepth(): number;
   moveBookPopulated(): number;
   moveBookHit(): boolean;
@@ -28,7 +28,7 @@ type Engine = {
   cacheLoad(data: Uint8Array): boolean;
   cacheSave(): Uint8Array;
   cacheLen(): number;
-  bookColumnScores(moves: Uint8Array): Int16Array;
+  scoreBookColumnScores(moves: Uint8Array): Int16Array;
   knownColumnScores(moves: Uint8Array): Int16Array;
 };
 
@@ -110,8 +110,8 @@ function ready(id: number, eng: Engine): WorkerRes {
   return {
     id,
     type: "ready",
-    bookLen: eng.bookLen(),
-    bookDepth: eng.bookDepth(),
+    scoreBookLen: eng.scoreBookLen(),
+    scoreBookDepth: eng.scoreBookDepth(),
     moveBookPopulated: eng.moveBookPopulated(),
     moveBookDepth: eng.moveBookDepth(),
   };
@@ -142,7 +142,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           if (!res.ok) throw new Error(`Score book download failed (${res.status})`);
           const bytes = new Uint8Array(await res.arrayBuffer());
           // Off/on toggles or another download can supersede this request.
-          if (scoreBookFetch === request && !engine.loadBook(bytes)) {
+          if (scoreBookFetch === request && !engine.loadScoreBook(bytes)) {
             throw new Error("Invalid score book download");
           }
         } catch (e) {
@@ -174,7 +174,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       }
       case "loadScoreBook":
         cancelScoreBookFetch();
-        if (!engine.loadBook(new Uint8Array(msg.bytes))) throw new Error("Invalid score book");
+        if (!engine.loadScoreBook(new Uint8Array(msg.bytes))) throw new Error("Invalid score book");
         reply(ready(msg.id, engine));
         break;
       case "loadMoveBook":
@@ -185,7 +185,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "clearDownloadedBooks":
         cancelScoreBookFetch();
         cancelMoveBookFetch();
-        engine.clearBook();
+        engine.clearScoreBook();
         engine.clearMoveBook();
         reply(ready(msg.id, engine));
         break;
@@ -303,7 +303,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           id: msg.id,
           type: "moved",
           col,
-          moveScores: completeMoveScores(engine.bookColumnScores(moves), msg.moves),
+          moveScores: completeMoveScores(engine.scoreBookColumnScores(moves), msg.moves),
           hintScores: Array.from(engine.knownColumnScores(moves)),
           nodes,
           micros,

@@ -60,7 +60,7 @@ test.describe("solver worker failures", () => {
     await page.goto("/connect4/#DEBUG");
     await expect(page.locator("#engine-line")).toHaveText(/Solver ready/i, { timeout: 60_000 });
     await expect(page.locator("#solver-alert")).toBeHidden();
-    await expect(page.locator("#book-line")).toContainText(/failed/i);
+    await expect(page.locator("#books-line")).toContainText(/failed/i);
 
     await setPace(page, 0);
     await page.locator('input[name="role0"][value="perfect"]').check();

@@ -13,17 +13,19 @@ const BITS_PER_SLOT: u8 = 3;
 const CHECKSUM_CRC32: u8 = 1;
 const FIXED_HEADER_LEN: usize = 20;
 const DIRECTORY_ENTRY_LEN: usize = 16;
-pub const MAX_MOVE_BOOK_PLY: u8 = 10;
+pub const MAX_MOVE_BOOK_PLY: u8 = 11;
 pub const UNKNOWN_MOVE: u8 = 7;
 
 pub const EXPECTED_SLOT_COUNTS: [u32; MAX_MOVE_BOOK_PLY as usize + 1] = [
-    1, 4, 32, 132, 660, 2_360, 9_440, 30_240, 104_580, 304_920, 941_472,
+    1, 4, 32, 132, 660, 2_360, 9_440, 30_240, 104_580, 304_920, 941_472, 2_529_912,
 ];
 
-const fn make_binomials() -> [[u32; 11]; 11] {
-    let mut table = [[0u32; 11]; 11];
+const BINOMIAL_SIZE: usize = MAX_MOVE_BOOK_PLY as usize + 1;
+
+const fn make_binomials() -> [[u32; BINOMIAL_SIZE]; BINOMIAL_SIZE] {
+    let mut table = [[0u32; BINOMIAL_SIZE]; BINOMIAL_SIZE];
     let mut n = 0;
-    while n <= 10 {
+    while n < BINOMIAL_SIZE {
         table[n][0] = 1;
         table[n][n] = 1;
         let mut k = 1;
@@ -36,7 +38,7 @@ const fn make_binomials() -> [[u32; 11]; 11] {
     table
 }
 
-const BINOMIALS: [[u32; 11]; 11] = make_binomials();
+const BINOMIALS: [[u32; BINOMIAL_SIZE]; BINOMIAL_SIZE] = make_binomials();
 
 #[derive(Clone, Debug)]
 struct Section {
@@ -350,7 +352,7 @@ fn color_rank(pos: &Position, reflect_columns: bool) -> u32 {
 }
 
 fn choose(n: usize, k: usize) -> u32 {
-    if k > n || n > 10 {
+    if k > n || n >= BINOMIAL_SIZE {
         0
     } else {
         BINOMIALS[n][k]
@@ -456,7 +458,7 @@ fn validate_padding(data: &[u8], slots: u32) -> Result<(), String> {
     Ok(())
 }
 
-fn crc32(bytes: &[u8]) -> u32 {
+pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for &byte in bytes {
         crc ^= byte as u32;
@@ -480,17 +482,31 @@ mod tests {
 
     #[test]
     fn generated_slot_counts_and_payload_match_the_spec() {
-        let book = MoveBook::empty(10).unwrap();
-        assert_eq!(book.slots(), 1_393_841);
-        assert_eq!(book.payload_bytes(), 522_693);
-        for (ply, &slots) in EXPECTED_SLOT_COUNTS.iter().enumerate() {
-            assert_eq!(book.sections[ply].slots, slots);
+        let move_book = MoveBook::empty(10).unwrap();
+        assert_eq!(move_book.slots(), 1_393_841);
+        assert_eq!(move_book.payload_bytes(), 522_693);
+        for (ply, &slots) in EXPECTED_SLOT_COUNTS[..=10].iter().enumerate() {
+            assert_eq!(move_book.sections[ply].slots, slots);
         }
+        let deeper = MoveBook::empty(11).unwrap();
+        assert_eq!(deeper.save().len(), 1_471_622);
+        assert_eq!(MoveBook::load(&deeper.save()).unwrap().max_ply(), 11);
+    }
+
+    #[test]
+    fn twelfth_move_roundtrips_in_both_board_orientations() {
+        let pos = position("44444222345");
+        assert_eq!(pos.moves(), 11);
+        let mut move_book = MoveBook::empty(11).unwrap();
+        move_book.insert(&pos, 1).unwrap();
+        let loaded = MoveBook::load(&move_book.save()).unwrap();
+        assert_eq!(loaded.get(&pos), Some(1));
+        assert_eq!(loaded.get(&pos.mirrored()), Some(5));
     }
 
     #[test]
     fn combinadic_rank_unrank_is_unique() {
-        for n in 0..=10 {
+        for n in 0..=MAX_MOVE_BOOK_PLY as usize {
             let k = n / 2;
             let mut ranks = HashSet::new();
             combinations(n, k, 0, &mut Vec::new(), &mut |selected| {
@@ -527,15 +543,15 @@ mod tests {
 
     #[test]
     fn three_bit_values_cross_bytes_and_sections_roundtrip() {
-        let mut book = MoveBook::empty(3).unwrap();
-        for (section_index, section) in book.sections.iter_mut().enumerate() {
+        let mut move_book = MoveBook::empty(3).unwrap();
+        for (section_index, section) in move_book.sections.iter_mut().enumerate() {
             for slot in 0..section.slots as usize {
                 let value = ((slot + section_index) % 7) as u8;
                 assert!(write_three_bits_min(&mut section.data, slot, value));
                 assert_eq!(read_three_bits(&section.data, slot), value);
             }
         }
-        let bytes = book.save();
+        let bytes = move_book.save();
         let loaded = MoveBook::load(&bytes).unwrap();
         assert_eq!(loaded.save(), bytes);
     }
@@ -544,11 +560,11 @@ mod tests {
     fn asymmetric_heights_fold_and_map_the_move_back() {
         let left = position("112");
         let right = position("776");
-        let mut book = MoveBook::empty(3).unwrap();
-        book.insert(&left, 0).unwrap();
-        assert_eq!(book.get(&left), Some(0));
-        assert_eq!(book.get(&right), Some(6));
-        assert_eq!(book.populated(), 1);
+        let mut move_book = MoveBook::empty(3).unwrap();
+        move_book.insert(&left, 0).unwrap();
+        assert_eq!(move_book.get(&left), Some(0));
+        assert_eq!(move_book.get(&right), Some(6));
+        assert_eq!(move_book.populated(), 1);
     }
 
     #[test]
@@ -556,10 +572,10 @@ mod tests {
         let left = position("174");
         let right = position("714");
         assert_eq!(position_heights(&left), reversed(position_heights(&left)));
-        let mut book = MoveBook::empty(3).unwrap();
-        assert_eq!(book.insert(&left, 2).unwrap(), 2);
-        assert_eq!(book.get(&left), Some(2));
-        assert_eq!(book.get(&right), Some(4));
+        let mut move_book = MoveBook::empty(3).unwrap();
+        assert_eq!(move_book.insert(&left, 2).unwrap(), 2);
+        assert_eq!(move_book.get(&left), Some(2));
+        assert_eq!(move_book.get(&right), Some(4));
     }
 
     #[test]
@@ -577,12 +593,12 @@ mod tests {
 
     #[test]
     fn unknown_depth_full_and_terminal_positions_miss() {
-        let mut book = MoveBook::empty(2).unwrap();
+        let mut move_book = MoveBook::empty(2).unwrap();
         let pos = position("12");
-        assert_eq!(book.get(&pos), None);
-        book.insert(&pos, 3).unwrap();
-        assert_eq!(book.get(&pos), Some(3));
-        assert_eq!(book.get(&position("123")), None);
+        assert_eq!(move_book.get(&pos), None);
+        move_book.insert(&pos, 3).unwrap();
+        assert_eq!(move_book.get(&pos), Some(3));
+        assert_eq!(move_book.get(&position("123")), None);
 
         let terminal = {
             let mut pos = position("121314");

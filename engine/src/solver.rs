@@ -1,9 +1,9 @@
 //! Strong Connect 4 solver: negamax, alpha-beta, null-window score search.
 
-use crate::book::Book;
 use crate::move_book::MoveBook;
 use crate::position::{column_mask, Position, AREA, WIDTH};
 use crate::proven::{best_of, orient_cols, pack_cols, ProvenTable};
+use crate::score_book::ScoreBook;
 use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,12 +18,12 @@ pub struct SolveResult {
     pub nodes: u64,
     pub micros: u64,
     pub timed_out: bool,
-    pub from_book: bool,
+    pub from_score_book: bool,
 }
 
 pub struct Solver {
     tt: Table,
-    book: Book,
+    score_book: ScoreBook,
     move_book: Option<MoveBook>,
     proven: ProvenTable,
     nodes: u64,
@@ -56,7 +56,7 @@ impl Solver {
         let log_size = log_size.clamp(16, 27);
         Self {
             tt: Table::new(log_size),
-            book: Book::opening_4ply(),
+            score_book: ScoreBook::opening_4ply(),
             move_book: None,
             proven: ProvenTable::new(),
             nodes: 0,
@@ -125,33 +125,33 @@ impl Solver {
         self.max_nodes = if ms == 0 { 0 } else { ms as u64 * 80_000 };
     }
 
-    pub fn load_book(&mut self, bytes: &[u8]) -> Result<(), String> {
-        self.set_book(Book::load(bytes)?);
+    pub fn load_score_book(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.set_score_book(ScoreBook::load(bytes)?);
         Ok(())
     }
 
-    pub fn set_book(&mut self, mut book: Book) {
-        book.fill_missing(&Book::opening_4ply());
-        self.book = book;
+    pub fn set_score_book(&mut self, mut score_book: ScoreBook) {
+        score_book.fill_missing(&ScoreBook::opening_4ply());
+        self.score_book = score_book;
     }
 
-    pub fn clear_book(&mut self) {
-        // Unload the downloaded book and restore the embedded fallback.
-        self.book = Book::opening_4ply();
+    pub fn clear_score_book(&mut self) {
+        // Unload the downloaded score book and restore the embedded fallback.
+        self.score_book = ScoreBook::opening_4ply();
     }
 
-    pub fn book(&self) -> &Book {
-        &self.book
+    pub fn score_book(&self) -> &ScoreBook {
+        &self.score_book
     }
 
     pub fn load_move_book(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let book = MoveBook::load(bytes)?;
-        self.move_book = Some(book);
+        let move_book = MoveBook::load(bytes)?;
+        self.move_book = Some(move_book);
         Ok(())
     }
 
-    pub fn set_move_book(&mut self, book: MoveBook) {
-        self.move_book = Some(book);
+    pub fn set_move_book(&mut self, move_book: MoveBook) {
+        self.move_book = Some(move_book);
     }
 
     pub fn clear_move_book(&mut self) {
@@ -166,7 +166,7 @@ impl Solver {
     ///
     /// `None` unless every legal non-winning child is in the book, so Medium
     /// never ranks a partial set. Immediate wins use the closed-form score.
-    pub fn column_scores_from_book(&self, pos: &Position) -> Option<[i32; WIDTH]> {
+    pub fn column_scores_from_score_book(&self, pos: &Position) -> Option<[i32; WIDTH]> {
         if pos.last_player_won() || pos.is_draw() {
             return None;
         }
@@ -182,13 +182,13 @@ impl Solver {
             } else {
                 let mut child = *pos;
                 child.play_col(col);
-                -self.book.get(&child)?
+                -self.score_book.get(&child)?
             };
         }
         playable.then_some(scores)
     }
 
-    /// Scores already known from books, proven child positions, or immediate
+    /// Scores already known from the score book, proven child positions, or immediate
     /// wins/losses. Unknown columns stay invalid; this never searches.
     pub fn known_column_scores(&self, pos: &Position) -> [i32; WIDTH] {
         let mut scores = [INVALID_MOVE; WIDTH];
@@ -228,8 +228,8 @@ impl Solver {
         Ok(())
     }
 
-    fn opening_score(&self, pos: &Position) -> Option<i32> {
-        self.book.get(pos)
+    fn score_book_score(&self, pos: &Position) -> Option<i32> {
+        self.score_book.get(pos)
     }
 
     fn proven_score(&self, pos: &Position) -> Option<i32> {
@@ -241,7 +241,8 @@ impl Solver {
     }
 
     fn exact_score(&self, pos: &Position) -> Option<i32> {
-        self.opening_score(pos).or_else(|| self.proven_score(pos))
+        self.score_book_score(pos)
+            .or_else(|| self.proven_score(pos))
     }
 
     fn begin_clock(&mut self) {
@@ -305,31 +306,31 @@ impl Solver {
     pub fn solve(&mut self, pos: Position) -> SolveResult {
         self.reset_nodes();
         self.begin_clock();
-        let (score, from_book) = self.score_position(pos, false);
+        let (score, from_score_book) = self.score_position(pos, false);
         SolveResult {
             score,
             nodes: self.nodes,
             micros: self.elapsed_micros(),
             timed_out: self.timed_out,
-            from_book,
+            from_score_book,
         }
     }
 
     pub fn solve_weak(&mut self, pos: Position) -> SolveResult {
         self.reset_nodes();
         self.begin_clock();
-        let (score, from_book) = self.score_position(pos, true);
+        let (score, from_score_book) = self.score_position(pos, true);
         SolveResult {
             score,
             nodes: self.nodes,
             micros: self.elapsed_micros(),
             timed_out: self.timed_out,
-            from_book,
+            from_score_book,
         }
     }
 
     fn score_position(&mut self, pos: Position, weak: bool) -> (i32, bool) {
-        if let Some(s) = self.opening_score(&pos) {
+        if let Some(s) = self.score_book_score(&pos) {
             return (s, true);
         }
         if let Some(s) = self.proven_score(&pos) {
@@ -419,7 +420,7 @@ impl Solver {
         }
         self.reset_nodes();
         self.begin_clock();
-        let (target, from_book) = self.score_position(pos, false);
+        let (target, from_score_book) = self.score_position(pos, false);
         let mut scores = [INVALID_MOVE; WIDTH];
         let mut best_col = None;
         for &col in &COLUMN_ORDER {
@@ -475,7 +476,7 @@ impl Solver {
             nodes: self.nodes,
             micros: self.elapsed_micros(),
             timed_out: self.timed_out,
-            from_book,
+            from_score_book,
         };
         Some((col, result, scores))
     }
@@ -488,7 +489,11 @@ impl Solver {
         if pos.last_player_won() || pos.is_draw() {
             return None;
         }
-        if let Some(col) = self.move_book.as_ref().and_then(|book| book.get(&pos)) {
+        if let Some(col) = self
+            .move_book
+            .as_ref()
+            .and_then(|move_book| move_book.get(&pos))
+        {
             self.move_book_hit = true;
             return Some(col);
         }
@@ -584,18 +589,18 @@ impl Solver {
         self.elapsed_micros()
     }
 
-    /// Recursively fill a book with exact scores up to `max_depth` plies.
-    /// Positions already in `book` are not re-solved; their children are still
+    /// Recursively fill a score book with exact scores up to `max_depth` plies.
+    /// Positions already in `score_book` are not re-solved; their children are still
     /// expanded so a depth-2 file can be grown to depth 4.
-    pub fn fill_book(&mut self, pos: Position, max_depth: u8, book: &mut Book) {
-        self.fill_book_with(pos, max_depth, book, 1, |_| {});
+    pub fn fill_score_book(&mut self, pos: Position, max_depth: u8, score_book: &mut ScoreBook) {
+        self.fill_score_book_with(pos, max_depth, score_book, 1, |_| {});
     }
 
-    pub fn fill_book_with<F: FnMut(&Book) + Send>(
+    pub fn fill_score_book_with<F: FnMut(&ScoreBook) + Send>(
         &mut self,
         pos: Position,
         max_depth: u8,
-        book: &mut Book,
+        score_book: &mut ScoreBook,
         threads: usize,
         mut on_change: F,
     ) {
@@ -603,18 +608,18 @@ impl Solver {
         let _ = threads;
         #[cfg(not(target_arch = "wasm32"))]
         if threads > 1 {
-            self.fill_book_parallel(pos, max_depth, book, threads, on_change);
+            self.fill_score_book_parallel(pos, max_depth, score_book, threads, on_change);
             return;
         }
         let mut expanded = std::collections::HashSet::new();
-        self.fill_book_rec(pos, max_depth, book, &mut expanded, &mut on_change);
+        self.fill_score_book_rec(pos, max_depth, score_book, &mut expanded, &mut on_change);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn collect_missing(
         pos: Position,
         max_depth: u8,
-        book: &Book,
+        score_book: &ScoreBook,
         expanded: &mut std::collections::HashSet<u64>,
         jobs: &mut Vec<Position>,
     ) {
@@ -625,7 +630,7 @@ impl Solver {
         if !expanded.insert(ck) {
             return;
         }
-        if !book.contains(&pos) {
+        if !score_book.contains(&pos) {
             jobs.push(pos);
         }
         if pos.moves() == max_depth {
@@ -637,16 +642,16 @@ impl Solver {
             }
             let mut child = pos;
             child.play_col(col);
-            Self::collect_missing(child, max_depth, book, expanded, jobs);
+            Self::collect_missing(child, max_depth, score_book, expanded, jobs);
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn fill_book_parallel<F: FnMut(&Book) + Send>(
+    fn fill_score_book_parallel<F: FnMut(&ScoreBook) + Send>(
         &mut self,
         pos: Position,
         max_depth: u8,
-        book: &mut Book,
+        score_book: &mut ScoreBook,
         threads: usize,
         on_change: F,
     ) {
@@ -655,7 +660,7 @@ impl Solver {
 
         let mut expanded = std::collections::HashSet::new();
         let mut jobs = Vec::new();
-        Self::collect_missing(pos, max_depth, book, &mut expanded, &mut jobs);
+        Self::collect_missing(pos, max_depth, score_book, &mut expanded, &mut jobs);
         let total = jobs.len();
         eprintln!("queued {total} unique positions to solve, {threads} threads (private TT each)");
         if total == 0 {
@@ -663,22 +668,22 @@ impl Solver {
         }
 
         let queue = Arc::new(Mutex::new(VecDeque::from(jobs)));
-        let shared_book = Arc::new(Mutex::new(std::mem::take(book)));
+        let shared_score_book = Arc::new(Mutex::new(std::mem::take(score_book)));
         let on_change = Arc::new(Mutex::new(on_change));
         let tt_log = self.tt_log;
         let mirror = self.mirror;
-        let seed = self.book.clone();
+        let seed = self.score_book.clone();
 
         std::thread::scope(|scope| {
             for _ in 0..threads {
                 let queue = Arc::clone(&queue);
-                let shared_book = Arc::clone(&shared_book);
+                let shared_score_book = Arc::clone(&shared_score_book);
                 let on_change = Arc::clone(&on_change);
                 let seed = seed.clone();
                 scope.spawn(move || {
                     let mut solver = Solver::with_tt_log(tt_log);
                     solver.set_mirror(mirror);
-                    solver.set_book(seed);
+                    solver.set_score_book(seed);
                     loop {
                         let job = {
                             let mut q = queue.lock().unwrap();
@@ -687,7 +692,7 @@ impl Solver {
                         let Some(job) = job else { break };
                         let r = solver.solve(job);
                         if !r.timed_out {
-                            let mut b = shared_book.lock().unwrap();
+                            let mut b = shared_score_book.lock().unwrap();
                             b.insert(job.key3(), r.score as i8, job.moves());
                             (on_change.lock().unwrap())(&b);
                         }
@@ -696,18 +701,18 @@ impl Solver {
             }
         });
 
-        let mutex = match Arc::try_unwrap(shared_book) {
+        let mutex = match Arc::try_unwrap(shared_score_book) {
             Ok(m) => m,
             Err(arc) => Mutex::new(arc.lock().unwrap().clone()),
         };
-        *book = mutex.into_inner().unwrap_or_else(|e| e.into_inner());
+        *score_book = mutex.into_inner().unwrap_or_else(|e| e.into_inner());
     }
 
-    fn fill_book_rec<F: FnMut(&Book)>(
+    fn fill_score_book_rec<F: FnMut(&ScoreBook)>(
         &mut self,
         pos: Position,
         max_depth: u8,
-        book: &mut Book,
+        score_book: &mut ScoreBook,
         expanded: &mut std::collections::HashSet<u64>,
         on_change: &mut F,
     ) {
@@ -718,13 +723,13 @@ impl Solver {
         if !expanded.insert(ck) {
             return;
         }
-        if !book.contains(&pos) {
+        if !score_book.contains(&pos) {
             let r = self.solve(pos);
             if r.timed_out {
                 return;
             }
-            book.insert(ck, r.score as i8, pos.moves());
-            on_change(book);
+            score_book.insert(ck, r.score as i8, pos.moves());
+            on_change(score_book);
         }
         if pos.moves() == max_depth {
             return;
@@ -735,7 +740,7 @@ impl Solver {
             }
             let mut child = pos;
             child.play_col(col);
-            self.fill_book_rec(child, max_depth, book, expanded, on_change);
+            self.fill_score_book_rec(child, max_depth, score_book, expanded, on_change);
         }
     }
 }
@@ -794,9 +799,9 @@ pub fn outcome_label(score: i32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::book::Book;
     use crate::move_book::MoveBook;
     use crate::position::Position;
+    use crate::score_book::ScoreBook;
     use std::fs;
     use std::path::Path;
 
@@ -830,7 +835,7 @@ mod tests {
         let mut solver = Solver::with_tt_log(20);
         let mut pos = Position::new();
         pos.play_seq("4455");
-        assert_eq!(solver.book().depth(), 4);
+        assert_eq!(solver.score_book().depth(), 4);
         // An ordinary full child solve exceeds this budget. The known parent
         // score proves the fork with only a few threshold-search nodes.
         solver.max_nodes = 100;
@@ -838,7 +843,7 @@ mod tests {
         assert_eq!(col, 2);
         assert_eq!(result.score, 18);
         assert!(!result.timed_out);
-        assert!(result.from_book);
+        assert!(result.from_score_book);
         assert_eq!(scores[2], 18);
         assert_eq!(scores[3], INVALID_MOVE);
         assert_eq!(scores[4], INVALID_MOVE);
@@ -868,7 +873,7 @@ mod tests {
         solver.max_nodes = 1;
         let (col, result, scores) = solver.best_move(pos).unwrap();
         assert!(pos.can_play(col));
-        assert!(result.from_book);
+        assert!(result.from_score_book);
         assert!(result.timed_out);
         assert_eq!(result.nodes, 1);
         assert_eq!(scores, [INVALID_MOVE; WIDTH]);
@@ -883,7 +888,7 @@ mod tests {
         solver.max_nodes = 1;
         let (col, result, scores) = solver.best_move(pos).unwrap();
         assert!(pos.can_play(col));
-        assert!(!result.from_book);
+        assert!(!result.from_score_book);
         assert!(result.timed_out);
         // Only the interrupted parent search should visit a node.
         assert_eq!(result.nodes, 1);
@@ -972,10 +977,10 @@ mod tests {
     }
 
     #[test]
-    fn timeout_aborts_search_beyond_embedded_book() {
+    fn timeout_aborts_search_beyond_embedded_score_book() {
         let mut s = Solver::new();
         s.set_timeout_ms(1);
-        // Search beyond the embedded 4-ply book.
+        // Search beyond the embedded 4-ply score book.
         let mut p = Position::new();
         p.play_seq("123456");
         let r = s.solve(p);
@@ -986,44 +991,44 @@ mod tests {
     }
 
     #[test]
-    fn downloaded_book_replaces_embedded_book_and_clear_restores_it() {
+    fn downloaded_score_book_replaces_embedded_score_book_and_clear_restores_it() {
         let mut solver = Solver::with_tt_log(16);
         let mut pos = Position::new();
         pos.play_seq("1234");
         let initial = solver.solve(pos);
-        assert!(initial.from_book);
+        assert!(initial.from_score_book);
         assert_eq!(initial.nodes, 0);
-        assert_eq!(solver.book().depth(), 4);
-        assert_eq!(solver.book().len(), 719);
+        assert_eq!(solver.score_book().depth(), 4);
+        assert_eq!(solver.score_book().len(), 719);
 
         solver
-            .load_book(include_bytes!("../../books/8ply.c4book"))
+            .load_score_book(include_bytes!("../../books/8ply.c4book"))
             .unwrap();
-        assert_eq!(solver.book().depth(), 8);
-        assert_eq!(solver.book().len(), 129_498);
+        assert_eq!(solver.score_book().depth(), 8);
+        assert_eq!(solver.score_book().len(), 129_498);
         assert_eq!(solver.solve(pos).score, initial.score);
-        assert!(solver.load_book(b"invalid").is_err());
+        assert!(solver.load_score_book(b"invalid").is_err());
         assert_eq!(
-            solver.book().depth(),
+            solver.score_book().depth(),
             8,
-            "bad downloads must not replace a valid book"
+            "bad downloads must not replace a valid score book"
         );
 
-        solver.clear_book();
-        assert_eq!(solver.book().depth(), 4);
-        assert_eq!(solver.book().len(), 719);
+        solver.clear_score_book();
+        assert_eq!(solver.score_book().depth(), 4);
+        assert_eq!(solver.score_book().len(), 719);
         assert_eq!(solver.solve(pos).score, initial.score);
     }
 
     #[test]
     fn empty_download_keeps_embedded_opening_coverage() {
         let mut solver = Solver::with_tt_log(16);
-        let embedded = solver.book().save();
-        let mut empty = Book::new().save();
-        // Even an empty file declaring a deeper book must retain the fallback.
+        let embedded = solver.score_book().save();
+        let mut empty = ScoreBook::new().save();
+        // Even an empty file declaring a deeper score book must retain the fallback.
         empty[5] = 12;
-        solver.load_book(&empty).unwrap();
-        assert_eq!(solver.book().save(), embedded);
+        solver.load_score_book(&empty).unwrap();
+        assert_eq!(solver.score_book().save(), embedded);
         let scores = solver.analyze(Position::new());
         assert_eq!(scores, [-2, -1, 0, 1, 0, -1, -2]);
         assert_eq!(solver.node_count(), 0);
@@ -1032,45 +1037,45 @@ mod tests {
     #[test]
     fn shallow_download_keeps_embedded_opening_coverage() {
         let mut solver = Solver::with_tt_log(16);
-        let embedded = solver.book().save();
+        let embedded = solver.score_book().save();
         solver
-            .load_book(include_bytes!("../../books/2ply.c4book"))
+            .load_score_book(include_bytes!("../../books/2ply.c4book"))
             .unwrap();
-        assert_eq!(solver.book().save(), embedded);
+        assert_eq!(solver.score_book().save(), embedded);
         let mut pos = Position::new();
         pos.play_seq("1234");
         let result = solver.solve(pos);
-        assert!(result.from_book);
+        assert!(result.from_score_book);
         assert_eq!(result.nodes, 0);
     }
 
     #[test]
-    fn sparse_deep_book_keeps_its_entries_and_embedded_coverage() {
-        let embedded = Book::opening_4ply();
-        let deeper = Book::load(include_bytes!("../../books/8ply.c4book")).unwrap();
+    fn sparse_deep_score_book_keeps_its_entries_and_embedded_coverage() {
+        let embedded = ScoreBook::opening_4ply();
+        let deeper = ScoreBook::load(include_bytes!("../../books/8ply.c4book")).unwrap();
         let mut pos = Position::new();
         pos.play_seq("12345");
         let score = deeper.get(&pos).unwrap();
-        let mut sparse = Book::new();
+        let mut sparse = ScoreBook::new();
         sparse.insert(pos.key3(), score as i8, pos.moves());
 
         let mut solver = Solver::with_tt_log(16);
-        solver.set_book(sparse);
-        assert_eq!(solver.book().depth(), 5);
-        assert_eq!(solver.book().len(), embedded.len() + 1);
+        solver.set_score_book(sparse);
+        assert_eq!(solver.score_book().depth(), 5);
+        assert_eq!(solver.score_book().len(), embedded.len() + 1);
         assert_eq!(solver.solve(pos).score, score);
         assert_eq!(solver.node_count(), 0);
-        // Keep the complete embedded book and the downloaded deeper entry.
+        // Keep the complete embedded score book and the downloaded deeper entry.
         let mut expected = embedded;
         expected.insert(pos.key3(), score as i8, pos.moves());
-        assert_eq!(solver.book().save(), expected.save());
+        assert_eq!(solver.score_book().save(), expected.save());
     }
 
     #[test]
-    fn fill_book_depth1_is_five_canonical_entries() {
+    fn fill_score_book_depth1_is_five_canonical_entries() {
         let mut s = Solver::new();
-        let mut b = Book::new();
-        s.fill_book(Position::new(), 1, &mut b);
+        let mut b = ScoreBook::new();
+        s.fill_score_book(Position::new(), 1, &mut b);
         assert_eq!(b.len(), 5);
         let mut edge = Position::new();
         edge.play_col(0);
@@ -1081,17 +1086,17 @@ mod tests {
     }
 
     #[test]
-    fn fill_book_continues_from_shallower() {
+    fn fill_score_book_continues_from_shallower() {
         let mut s = Solver::new();
-        let mut b = Book::new();
-        s.fill_book(Position::new(), 0, &mut b);
+        let mut b = ScoreBook::new();
+        s.fill_score_book(Position::new(), 0, &mut b);
         assert_eq!(b.len(), 1);
         assert_eq!(b.depth(), 0);
-        s.fill_book(Position::new(), 1, &mut b);
+        s.fill_score_book(Position::new(), 1, &mut b);
         assert_eq!(b.len(), 5);
         assert_eq!(b.depth(), 1);
         let n = b.len();
-        s.fill_book(Position::new(), 1, &mut b);
+        s.fill_score_book(Position::new(), 1, &mut b);
         assert_eq!(b.len(), n, "second pass must not re-insert");
     }
 
@@ -1104,7 +1109,7 @@ mod tests {
         assert!(!s.timed_out());
         let r = s.solve(Position::new());
         assert_eq!(r.score, 1);
-        assert!(r.from_book);
+        assert!(r.from_score_book);
     }
 
     #[test]
@@ -1152,7 +1157,7 @@ mod tests {
         let r2 = solver.solve(pos);
         assert_eq!(r2.score, -1);
         assert_eq!(r2.nodes, 0);
-        assert!(!r2.from_book);
+        assert!(!r2.from_score_book);
     }
 
     #[test]
@@ -1280,13 +1285,13 @@ mod tests {
     }
 
     #[test]
-    fn malformed_move_book_does_not_replace_active_book() {
+    fn malformed_move_book_does_not_replace_active_move_book() {
         let mut pos = Position::new();
         pos.play_seq("1234");
-        let mut book = MoveBook::empty(10).unwrap();
-        book.insert(&pos, 2).unwrap();
+        let mut move_book = MoveBook::empty(10).unwrap();
+        move_book.insert(&pos, 2).unwrap();
         let mut solver = Solver::with_tt_log(16);
-        solver.load_move_book(&book.save()).unwrap();
+        solver.load_move_book(&move_book.save()).unwrap();
         assert_eq!(solver.select_move(pos), Some(2));
         assert!(solver.load_move_book(b"invalid").is_err());
         assert_eq!(solver.select_move(pos), Some(2));
@@ -1295,55 +1300,55 @@ mod tests {
     }
 
     #[test]
-    fn column_scores_from_embedded_book_match_empty_board_analysis() {
+    fn column_scores_from_embedded_score_book_match_empty_board_analysis() {
         let solver = Solver::new();
         let scores = solver
-            .column_scores_from_book(&Position::new())
-            .expect("empty board children are in the 4-ply book");
+            .column_scores_from_score_book(&Position::new())
+            .expect("empty board children are in the 4-ply score book");
         assert_eq!(scores, [-2, -1, 0, 1, 0, -1, -2]);
         assert_eq!(solver.node_count(), 0);
     }
 
     #[test]
-    fn column_scores_from_book_require_every_child() {
+    fn column_scores_from_score_book_require_every_child() {
         let solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("4444");
         assert_eq!(pos.moves(), 4);
-        assert!(solver.column_scores_from_book(&pos).is_none());
+        assert!(solver.column_scores_from_score_book(&pos).is_none());
 
         let mut shallower = Position::new();
         shallower.play_seq("444");
         let scores = solver
-            .column_scores_from_book(&shallower)
-            .expect("ply-3 children are in the 4-ply book");
+            .column_scores_from_score_book(&shallower)
+            .expect("ply-3 children are in the 4-ply score book");
         assert_eq!(scores.iter().filter(|&&s| s != INVALID_MOVE).count(), 7);
     }
 
     #[test]
-    fn eight_ply_book_scores_ply_seven_but_not_ply_eight() {
+    fn eight_ply_score_book_scores_ply_seven_but_not_ply_eight() {
         let mut solver = Solver::with_tt_log(16);
         solver
-            .load_book(include_bytes!("../../books/8ply.c4book"))
+            .load_score_book(include_bytes!("../../books/8ply.c4book"))
             .unwrap();
         let mut ply7 = Position::new();
         ply7.play_seq("1234567");
         assert_eq!(ply7.moves(), 7);
-        assert!(solver.column_scores_from_book(&ply7).is_some());
+        assert!(solver.column_scores_from_score_book(&ply7).is_some());
         let mut ply8 = Position::new();
         ply8.play_seq("12345671");
         assert_eq!(ply8.moves(), 8);
-        assert!(solver.column_scores_from_book(&ply8).is_none());
+        assert!(solver.column_scores_from_score_book(&ply8).is_none());
     }
 
     #[test]
-    fn column_scores_from_book_leave_select_move_stats_alone() {
+    fn column_scores_from_score_book_leave_select_move_stats_alone() {
         let mut solver = Solver::new();
         let pos = Position::new();
         assert_eq!(solver.select_move(pos), Some(3));
         let nodes = solver.node_count();
         let hit = solver.move_book_hit();
-        let _ = solver.column_scores_from_book(&pos);
+        let _ = solver.column_scores_from_score_book(&pos);
         assert_eq!(solver.node_count(), nodes);
         assert_eq!(solver.move_book_hit(), hit);
     }
@@ -1364,7 +1369,7 @@ mod tests {
         assert_eq!(known[4], INVALID_MOVE);
         assert_eq!(solver.node_count(), result.nodes);
         assert_eq!(solver.proven.save(), cache);
-        assert!(solver.column_scores_from_book(&pos).is_none());
+        assert!(solver.column_scores_from_score_book(&pos).is_none());
 
         let mut interrupted = Solver::with_tt_log(20);
         let mut pos = Position::new();

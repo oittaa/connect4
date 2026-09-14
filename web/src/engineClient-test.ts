@@ -41,8 +41,8 @@ function ready(id: number): WorkerRes {
   return {
     id,
     type: "ready",
-    bookLen: 1,
-    bookDepth: 4,
+    scoreBookLen: 1,
+    scoreBookDepth: 4,
     moveBookPopulated: 0,
     moveBookDepth: 0,
   };
@@ -129,16 +129,16 @@ function ready(id: number): WorkerRes {
   const client = createEngineClient(port, { onFailure: (d) => failures.push(d) });
   const initP = client.request({ type: "init", timeoutMs: 0 });
   const analyzeP = client.request({ type: "analyze", moves: [] });
-  const bookP = client.request({
+  const scoreBookP = client.request({
     type: "fetchScoreBook",
     url: "books/opening.c4book",
   });
   port.onerror?.({ message: "import failed" });
   port.onerror?.({ message: "second" });
-  const [init, analyze, book] = await Promise.all([initP, analyzeP, bookP]);
+  const [init, analyze, scoreBook] = await Promise.all([initP, analyzeP, scoreBookP]);
   same(init, { id: 1, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles init");
   same(analyze, { id: 2, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles analyze");
-  same(book, { id: 3, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles book fetch");
+  same(scoreBook, { id: 3, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles score-book fetch");
   same(failures, ["import failed"], "onFailure runs once with the event detail");
   const posted = port.posted.length;
   const later = await client.request({ type: "bestMove", moves: [] });
@@ -214,7 +214,7 @@ assert(isBlockingCompute("analyze"), "analyze blocks the worker");
 assert(isBlockingCompute("bestMove"), "bestMove blocks the worker");
 assert(isBlockingCompute("solve"), "solve blocks the worker");
 assert(!isBlockingCompute("init"), "init is not a blocking search");
-assert(!isBlockingCompute("fetchScoreBook"), "book download is not a blocking search");
+assert(!isBlockingCompute("fetchScoreBook"), "score-book download is not a blocking search");
 
 {
   const port = stub();
@@ -229,7 +229,7 @@ assert(!isBlockingCompute("fetchScoreBook"), "book download is not a blocking se
 {
   const port = stub();
   const client = createEngineClient(port);
-  const bookP = client.request({
+  const scoreBookP = client.request({
     type: "fetchScoreBook",
     url: "books/opening.c4book",
   });
@@ -237,8 +237,8 @@ assert(!isBlockingCompute("fetchScoreBook"), "book download is not a blocking se
   const analyzeP = client.request({ type: "analyze", moves: [] });
   assert(client.hasPendingCompute(), "analyze behind a book fetch is still pending compute");
   client.fail(WORKER_REPLACED);
-  const [book, analyze] = await Promise.all([bookP, analyzeP]);
-  assert(book.type === "error" && book.message === WORKER_REPLACED, "replace settles book");
+  const [scoreBook, analyze] = await Promise.all([scoreBookP, analyzeP]);
+  assert(scoreBook.type === "error" && scoreBook.message === WORKER_REPLACED, "replace settles book");
   assert(analyze.type === "error" && analyze.message === WORKER_REPLACED, "replace settles analyze");
   assert(!client.hasPendingCompute(), "failed client has no pending compute");
 }

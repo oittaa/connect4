@@ -2,30 +2,30 @@ import type { EngineRequest } from "./engineClient.ts";
 import type { WorkerRes } from "./engineProtocol.ts";
 
 export type BookRestoreHost = {
-  bookOn(): boolean;
+  downloadedBooksEnabled(): boolean;
   generation(): number;
-  retainedScore(): ArrayBuffer | null;
-  retainedMove(): ArrayBuffer | null;
+  retainedScoreBook(): ArrayBuffer | null;
+  retainedMoveBook(): ArrayBuffer | null;
   report(r?: WorkerRes): void;
   loaded(kind: "score" | "move" | "clear", r: WorkerRes): void;
 };
 
-export type BookDownloadState = {
-  bookOn: boolean;
+export type BooksDownloadState = {
+  downloadedBooksEnabled: boolean;
   retainedScoreBook: ArrayBuffer | null;
   retainedMoveBook: ArrayBuffer | null;
-  scoreAttempted?: boolean;
-  moveAttempted?: boolean;
-  scoreInFlight?: boolean;
-  moveInFlight?: boolean;
+  scoreBookAttempted?: boolean;
+  moveBookAttempted?: boolean;
+  scoreBookInFlight?: boolean;
+  moveBookInFlight?: boolean;
 };
 
 /** Start a book fetch only when On, bytes are missing, and this attempt is not already done or running. */
-export function shouldStartBookDownload(kind: "score" | "move", state: BookDownloadState): boolean {
-  if (!state.bookOn) return false;
+export function shouldStartBookDownload(kind: "score" | "move", state: BooksDownloadState): boolean {
+  if (!state.downloadedBooksEnabled) return false;
   const retained = kind === "score" ? state.retainedScoreBook : state.retainedMoveBook;
-  const inFlight = kind === "score" ? state.scoreInFlight : state.moveInFlight;
-  const attempted = kind === "score" ? state.scoreAttempted : state.moveAttempted;
+  const inFlight = kind === "score" ? state.scoreBookInFlight : state.moveBookInFlight;
+  const attempted = kind === "score" ? state.scoreBookAttempted : state.moveBookAttempted;
   return !retained && !inFlight && !attempted;
 }
 
@@ -34,7 +34,7 @@ export function shouldStartBookDownload(kind: "score" | "move", state: BookDownl
  * been attempted this On period. In-flight fetches keep running; a timeout does
  * not start an automatic retry.
  */
-export function shouldDownloadBooks(state: BookDownloadState): boolean {
+export function shouldDownloadBooks(state: BooksDownloadState): boolean {
   return shouldStartBookDownload("score", state) || shouldStartBookDownload("move", state);
 }
 
@@ -50,21 +50,21 @@ export async function restoreRetainedBooks(
 ): Promise<void> {
   host.report(ready);
   const gen = host.generation();
-  const current = () => host.generation() === gen && host.bookOn();
+  const current = () => host.generation() === gen && host.downloadedBooksEnabled();
 
-  const score = host.retainedScore();
-  if (host.bookOn() && score) {
+  const score = host.retainedScoreBook();
+  if (host.downloadedBooksEnabled() && score) {
     const r = await client.request({ type: "loadScoreBook", bytes: score.slice(0) });
     if (current()) host.loaded("score", r);
   }
 
-  const move = host.retainedMove();
+  const move = host.retainedMoveBook();
   if (current() && move) {
     const r = await client.request({ type: "loadMoveBook", bytes: move.slice(0) });
     if (current()) host.loaded("move", r);
   }
 
-  if (!host.bookOn()) {
+  if (!host.downloadedBooksEnabled()) {
     const r = await client.request({ type: "clearDownloadedBooks" });
     host.loaded("clear", r);
   }

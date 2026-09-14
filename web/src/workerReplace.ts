@@ -19,8 +19,8 @@ export type WorkerReplaceHost = {
   afterReady(): void;
   onInitFailure(detail: string): void;
   isEngineFailed(): boolean;
-  bookOn(): boolean;
-  bookGeneration(): number;
+  downloadedBooksEnabled(): boolean;
+  booksGeneration(): number;
 };
 
 function replacedResult(): WorkerRes {
@@ -70,9 +70,9 @@ export function createWorkerReplace(host: WorkerReplaceHost) {
 
   async function send(msg: EngineRequest): Promise<WorkerRes> {
     if (!isBlockingCompute(msg.type)) {
-      const bookGen = isBookLoad(msg.type) ? host.bookGeneration() : null;
+      const bookGen = isBookLoad(msg.type) ? host.booksGeneration() : null;
       if (replacing) await replacing;
-      if (bookGen !== null && (host.bookGeneration() !== bookGen || !host.bookOn())) {
+      if (bookGen !== null && (host.booksGeneration() !== bookGen || !host.downloadedBooksEnabled())) {
         return replacedResult();
       }
       return current.client.request(msg);
