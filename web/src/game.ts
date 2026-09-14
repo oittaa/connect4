@@ -1,7 +1,11 @@
+import type { CompleteColumnScores } from "./engineProtocol";
+
 export const WIDTH = 7;
 export const HEIGHT = 6;
 export const AREA = WIDTH * HEIGHT;
 export const INVALID = -1000;
+
+export type { CompleteColumnScores };
 
 export type Role = "human" | "easy" | "medium" | "perfect";
 export type ComputerRole = Exclude<Role, "human">;
@@ -168,19 +172,19 @@ export function mediumMove(scores: number[], random: () => number = Math.random)
 }
 
 /**
- * Medium: take wins/blocks, then rank from complete score-book columns, else
+ * Medium: take wins/blocks, then rank from complete move scores, else
  * keep the engine column most of the time or leak to a non-losing legal drop.
  */
 export function pickMedium(
   moves: number[],
   engineCol: number,
-  scores: number[],
+  moveScores: CompleteColumnScores | null,
   random: () => number = Math.random,
 ): number | null {
   const forced = forcedWinOrBlock(moves);
   if (forced !== null) return forced;
 
-  const ranked = mediumMove(scores, random);
+  const ranked = moveScores === null ? null : mediumMove(moveScores, random);
   if (ranked !== null) return ranked;
 
   const g = playMoves(moves);
@@ -235,21 +239,42 @@ export function chooseAfterEngine(
   role: ComputerRole,
   moves: number[],
   engineCol: number,
-  scores: number[],
+  moveScores: CompleteColumnScores | null,
   random: () => number = Math.random,
 ): number | null {
   let col = engineCol;
-  if (role === "medium") col = pickMedium(moves, engineCol, scores, random) ?? engineCol;
+  if (role === "medium") col = pickMedium(moves, engineCol, moveScores, random) ?? engineCol;
   if (!legalEngineColumn(col)) col = easyMove(moves, random) ?? col;
   return legalEngineColumn(col) ? col : null;
 }
 
-export function analysisComplete(scores: number[], heights: number[]): boolean {
+export function analysisComplete(scores: ArrayLike<number>, heights: number[]): boolean {
   if (scores.length < WIDTH) return false;
   for (let c = 0; c < WIDTH; c++) {
     if (heights[c] < HEIGHT && scores[c] === INVALID) return false;
   }
   return true;
+}
+
+/**
+ * Worker-boundary complete move scores. Empty, short, or any legal column
+ * still at `INVALID` becomes `null`. Seven entries alone are not enough.
+ */
+export function completeMoveScores(
+  scores: ArrayLike<number>,
+  moves: number[],
+): CompleteColumnScores | null {
+  if (scores.length !== WIDTH) return null;
+  const cols: CompleteColumnScores = [
+    scores[0],
+    scores[1],
+    scores[2],
+    scores[3],
+    scores[4],
+    scores[5],
+    scores[6],
+  ];
+  return analysisComplete(cols, playMoves(moves).height) ? cols : null;
 }
 
 export function bestCols(scores: number[]): number[] {

@@ -2,62 +2,8 @@
 /// <reference types="vite/client" />
 
 import { cacheLoad, cacheSave } from "./cache";
-import { WIDTH } from "./game";
-
-export type WorkerReq =
-  | { id: number; type: "init"; timeoutMs: number }
-  | { id: number; type: "fetchScoreBook"; url: string }
-  | { id: number; type: "fetchMoveBook"; url: string }
-  | { id: number; type: "loadScoreBook"; bytes: ArrayBuffer }
-  | { id: number; type: "loadMoveBook"; bytes: ArrayBuffer }
-  | { id: number; type: "clearDownloadedBooks" }
-  | { id: number; type: "setTimeout"; ms: number }
-  | { id: number; type: "solve"; moves: number[] }
-  | { id: number; type: "analyze"; moves: number[] }
-  | { id: number; type: "bestMove"; moves: number[] };
-
-export type WorkerRes =
-  | {
-      id: number;
-      type: "ready";
-      bookLen: number;
-      bookDepth: number;
-      moveBookPopulated: number;
-      moveBookDepth: number;
-    }
-  | {
-      id: number;
-      type: "solved";
-      score: number;
-      nodes: number;
-      micros: number;
-      timedOut: boolean;
-      fromCache: boolean;
-      key: string;
-    }
-  | {
-      id: number;
-      type: "analyzed";
-      scores: number[];
-      nodes: number;
-      micros: number;
-      timedOut: boolean;
-      fromCache: boolean;
-      key: string;
-    }
-  | {
-      id: number;
-      type: "moved";
-      col: number;
-      scores: number[];
-      nodes: number;
-      micros: number;
-      timedOut: boolean;
-      fromCache: boolean;
-      fromMoveBook: boolean;
-      key: string;
-    }
-  | { id: number; type: "error"; message: string };
+import type { WorkerReq, WorkerRes } from "./engineProtocol";
+import { bestCols, completeMoveScores } from "./game";
 
 type Engine = {
   solve(moves: Uint8Array): number;
@@ -317,20 +263,13 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const moves = u8(msg.moves);
         const key = engine.key(moves) ?? "";
         const hit = readHit(engine.cacheGet(moves), true);
-        if (hit?.scores) {
-          let col = 255;
-          let best = -Infinity;
-          hit.scores.forEach((s, i) => {
-            if (s !== -1000 && s > best) {
-              best = s;
-              col = i;
-            }
-          });
+        const cached = hit?.scores ? completeMoveScores(hit.scores, msg.moves) : null;
+        if (cached) {
           reply({
             id: msg.id,
             type: "moved",
-            col,
-            scores: hit.scores,
+            col: bestCols(cached)[0] ?? 255,
+            moveScores: cached,
             nodes: 0,
             micros: 0,
             timedOut: false,
@@ -346,12 +285,11 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const timedOut = engine.timedOut();
         const fromMoveBook = engine.moveBookHit();
         if (!fromMoveBook) schedulePersist(engine);
-        const bookScores = Array.from(engine.bookColumnScores(moves));
         reply({
           id: msg.id,
           type: "moved",
           col,
-          scores: bookScores.length === WIDTH ? bookScores : [],
+          moveScores: completeMoveScores(engine.bookColumnScores(moves), msg.moves),
           nodes,
           micros,
           timedOut,
