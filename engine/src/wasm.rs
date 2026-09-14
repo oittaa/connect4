@@ -67,6 +67,20 @@ impl WasmEngine {
         self.solver.book().len() as u32
     }
 
+    /// Seven column scores from the score book, or empty if any child is missing.
+    /// Does not reset search stats; call after `bestMove`.
+    #[wasm_bindgen(js_name = bookColumnScores)]
+    pub fn book_column_scores(&self, moves: &[u8]) -> Vec<i16> {
+        let mut p = Position::new();
+        if !p.play_moves(moves) {
+            return Vec::new();
+        }
+        match self.solver.column_scores_from_book(&p) {
+            Some(scores) => scores.iter().map(|&s| s as i16).collect(),
+            None => Vec::new(),
+        }
+    }
+
     #[wasm_bindgen(js_name = moveBookDepth)]
     pub fn move_book_depth(&self) -> u8 {
         self.solver

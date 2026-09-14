@@ -5,10 +5,11 @@ import {
   analysisComplete,
   bestCols,
   easyMove,
+  forcedWinOrBlock,
   formatScore,
   isDraw,
   lastMoveWin,
-  mediumMove,
+  pickMedium,
   playMoves,
   statusText,
   toMove,
@@ -264,6 +265,16 @@ function scheduleComputer(): void {
     }, delayMs);
     return;
   }
+  // Wins and blocks do not need the solver. Waiting for bestMove can take
+  // seconds past book coverage, including on a mandatory block.
+  if (role === "medium" && forcedWinOrBlock(played()) !== null) {
+    cpuTimer = window.setTimeout(() => {
+      if (generation !== cpuGeneration || paused) return;
+      const col = forcedWinOrBlock(played());
+      if (col !== null) applyMove(col);
+    }, delayMs);
+    return;
+  }
   if (!engineReady) {
     engineLine.textContent = "Waiting for solver…";
     return;
@@ -288,7 +299,7 @@ async function requestMove(role: Role, generation: number): Promise<void> {
   scores = r.scores;
   reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
   let col = r.col;
-  if (role === "medium") col = mediumMove(r.scores) ?? r.col;
+  if (role === "medium") col = pickMedium(played(), r.col, r.scores) ?? r.col;
   if (!(col >= 0 && col < WIDTH)) col = easyMove(played()) ?? 255;
   if (col >= 0 && col < WIDTH && !gameOver()) applyMove(col);
   else renderBoard(false);

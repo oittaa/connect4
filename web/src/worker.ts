@@ -2,6 +2,7 @@
 /// <reference types="vite/client" />
 
 import { cacheLoad, cacheSave } from "./cache";
+import { WIDTH } from "./game";
 
 export type WorkerReq =
   | { id: number; type: "init"; timeoutMs: number }
@@ -81,6 +82,7 @@ type Engine = {
   cacheLoad(data: Uint8Array): boolean;
   cacheSave(): Uint8Array;
   cacheLen(): number;
+  bookColumnScores(moves: Uint8Array): Int16Array;
 };
 
 let engine: Engine | null = null;
@@ -344,11 +346,12 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const timedOut = engine.timedOut();
         const fromMoveBook = engine.moveBookHit();
         if (!fromMoveBook) schedulePersist(engine);
+        const bookScores = Array.from(engine.bookColumnScores(moves));
         reply({
           id: msg.id,
           type: "moved",
           col,
-          scores: [],
+          scores: bookScores.length === WIDTH ? bookScores : [],
           nodes,
           micros,
           timedOut,
