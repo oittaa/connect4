@@ -17,7 +17,8 @@ import {
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
-import type { WorkerReq, WorkerRes } from "./engineProtocol";
+import { createEngineClient } from "./engineClient";
+import type { WorkerRes } from "./engineProtocol";
 
 const history: number[] = [];
 let cursor = 0;
@@ -34,8 +35,6 @@ let bookDownloads = { score: "", move: "" };
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
-let reqId = 1;
-const pending = new Map<number, (r: WorkerRes) => void>();
 
 const boardEl = document.getElementById("board")!;
 const scoresEl = document.getElementById("scores")!;
@@ -69,24 +68,7 @@ const mobile = matchMedia("(max-width: 700px), (pointer: coarse)").matches;
 const timeoutMs = mobile ? 6_000 : 12_000;
 
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-worker.onmessage = (ev: MessageEvent<WorkerRes>) => {
-  const r = ev.data;
-  const fn = pending.get(r.id);
-  if (fn) {
-    pending.delete(r.id);
-    fn(r);
-  }
-};
-
-type OmitId<T> = T extends unknown ? Omit<T, "id"> : never;
-
-function send(msg: OmitId<WorkerReq>): Promise<WorkerRes> {
-  const id = reqId++;
-  return new Promise((resolve) => {
-    pending.set(id, resolve);
-    worker.postMessage({ ...msg, id } as WorkerReq);
-  });
-}
+const { request: send } = createEngineClient(worker);
 
 function played(): number[] {
   return history.slice(0, cursor);
