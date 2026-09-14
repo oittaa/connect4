@@ -158,6 +158,10 @@ assert(analysisProven(fullColScores, playMoves(fullCol).height, false), "full-co
 assert(analysisProven(fullColScores, playMoves(fullCol).height, true) === false, "timedOut full-column is not proven");
 same(provenBestColumns(timeoutLookalike, emptyHeights, true), [], "timedOut complete array has no best highlight");
 same(provenBestColumns(timeoutPartial, emptyHeights, false), [], "partial array has no best highlight");
+same(provenBestColumns(timeoutPartial, emptyHeights, false, 3), [2, 3], "a proven best-move column certifies equal exact scores");
+same(provenBestColumns(timeoutPartial, emptyHeights, true, 3), [], "an aborted best-move search cannot certify an optimum");
+same(provenBestColumns(timeoutPartial, emptyHeights, false, 0), [], "unknown scores cannot become best through a fallback column");
+same(provenBestColumns(timeoutPartial, emptyHeights, false, 255), [], "invalid engine column cannot certify an optimum");
 same(provenBestColumns(emptyScores, emptyHeights, false), [3], "completed analysis highlights the best");
 same(provenBestColumns(emptyScores, emptyHeights, true), [], "timedOut book-looking array has no best highlight");
 same(provenBestColumns(null, emptyHeights, false), [], "missing analysis has no best highlight");

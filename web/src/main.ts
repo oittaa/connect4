@@ -1,18 +1,21 @@
 import {
   AREA,
   HEIGHT,
+  INVALID,
   WIDTH,
   analysisReplyApplies,
   analysisScoreClass,
   chooseAfterEngine,
   formatScore,
   isDraw,
+  isActiveComputerTurn,
   lastMoveWin,
   planComputerTurn,
   planHintAndComputer,
   playMoves,
   provenBestColumns,
   shouldRequestAnalysis,
+  shouldRequestAvailableScores,
   shouldShowHintDisplay,
   statusText,
   toMove,
@@ -35,6 +38,8 @@ let roles: [Role, Role] = ["human", "human"];
 let analysis: { scores: number[]; timedOut: boolean } | null = null;
 let analyzing = false;
 let analysisGeneration = 0;
+let computerHints: { scores: number[]; timedOut: boolean; provenCol?: number } | null = null;
+let computerHintGeneration = 0;
 let thinking = false;
 let engineReady = false;
 let engineFailed = false;
@@ -95,6 +100,8 @@ function declareSolverFailed(detail: string): void {
   analyzing = false;
   analysis = null;
   analysisGeneration++;
+  computerHintGeneration++;
+  computerHints = null;
   thinking = false;
   solverAlertText.textContent = SOLVER_FAILURE_TEXT;
   solverAlert.hidden = false;
@@ -215,9 +222,12 @@ function renderBoard(animateLast: boolean): void {
   const win = lastMoveWin(m);
   const winSet = new Set((win ?? []).map(([r, c]) => `${r},${c}`));
   const over = gameOver();
-  const showHints = shouldShowHintDisplay(analyzeChk.checked, over, paused, currentRole());
+  const showHints = shouldShowHintDisplay(analyzeChk.checked, over);
+  const computerTurn = isActiveComputerTurn(hintContext());
+  const hints = computerTurn ? computerHints : analysis;
+  const provenCol = computerTurn ? computerHints?.provenCol : undefined;
   const best = showHints
-    ? provenBestColumns(analysis?.scores ?? null, g.height, analysis?.timedOut ?? false)
+    ? provenBestColumns(hints?.scores ?? null, g.height, hints?.timedOut ?? false, provenCol)
     : [];
 
   if (over) engineLine.textContent = "Game over.";
@@ -256,8 +266,6 @@ function renderBoard(animateLast: boolean): void {
             { once: true },
           );
         }
-      } else {
-        disc.classList.remove("dropping");
       }
       disc.classList.toggle("win-glow", winSet.has(`${row},${c}`));
     });
@@ -271,10 +279,10 @@ function renderBoard(animateLast: boolean): void {
       span.textContent = "…";
       scoresEl.appendChild(span);
     }
-  } else if (showHints && analysis) {
+  } else if (showHints && hints) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
-    analysis.scores.forEach((s, i) => {
+    hints.scores.forEach((s, i) => {
       const span = document.createElement("span");
       span.textContent = formatScore(s);
       const tone = analysisScoreClass(s, best.includes(i));
@@ -288,9 +296,9 @@ function renderBoard(animateLast: boolean): void {
 
   statusEl.textContent = statusText(
     m,
-    showHints && !analyzing ? analysis?.scores ?? null : null,
+    showHints && !analyzing ? hints?.scores ?? null : null,
     thinking,
-    analysis?.timedOut ?? false,
+    hints?.timedOut ?? false,
   );
   if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
   statusEl.classList.toggle("thinking", !over && !paused && (thinking || analyzing));
@@ -334,6 +342,8 @@ function hintContext(): HintSessionContext {
 }
 
 function applyHintComputer(event: HintSessionEvent, animateLast: boolean): void {
+  computerHintGeneration++;
+  if (event === "position") computerHints = null;
   const plan = planHintAndComputer(event, hintContext());
   if (plan.invalidateAnalysis) {
     analysisGeneration++;
@@ -347,6 +357,7 @@ function applyHintComputer(event: HintSessionEvent, animateLast: boolean): void 
   if (plan.scheduleComputer) scheduleComputer();
   renderBoard(animateLast);
   if (plan.requestAnalyze) void requestAnalyze();
+  else void requestAvailableScores();
 }
 
 let cpuTimer = 0;
@@ -385,9 +396,11 @@ function scheduleComputer(): void {
   }
   if (plan.type === "engine") thinking = true;
   const turn: PendingComputerTurn = { generation: cpuGeneration, role, moves, plan };
-  cpuTimer = window.setTimeout(() => {
+  if (plan.type === "local") {
+    cpuTimer = window.setTimeout(() => { void executeComputerTurn(turn); }, delayMs);
+  } else {
     void executeComputerTurn(turn);
-  }, delayMs);
+  }
 }
 
 async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
@@ -398,8 +411,8 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   }
   const r = await send({ type: "bestMove", moves: turn.moves });
   if (computerTurnStale(turn.generation) || isWorkerReplaced(r)) return;
-  thinking = false;
   if (r.type !== "moved") {
+    thinking = false;
     if (!engineFailed) {
       engineLine.textContent = r.type === "error" ? r.message : "solver error";
     }
@@ -408,8 +421,30 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   }
   reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
   const col = chooseAfterEngine(turn.role, turn.moves, r.col, r.moveScores);
-  if (col !== null && !gameOver()) applyMove(col);
-  else renderBoard(false);
+  computerHintGeneration++;
+  computerHints = r.hintScores.some((s) => s !== INVALID)
+    ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : r.col }
+    : null;
+  if (col === null || gameOver()) thinking = false;
+  renderBoard(false);
+  // Let the current position's hints remain visible for the chosen pace.
+  if (col !== null && !gameOver()) {
+    cpuTimer = window.setTimeout(() => {
+      if (!computerTurnStale(turn.generation) && !gameOver()) applyMove(col);
+    }, delayMs);
+  }
+}
+
+/** Computer hints only read proven scores; they never delay the move for a search. */
+async function requestAvailableScores(): Promise<void> {
+  if (!shouldRequestAvailableScores(hintContext())) return;
+  const token = ++computerHintGeneration;
+  const r = await send({ type: "availableScores", moves: played() });
+  if (token !== computerHintGeneration || r.type !== "availableScores" || !shouldRequestAvailableScores(hintContext())) return;
+  if (r.scores.some((s) => s !== INVALID)) {
+    computerHints = { ...computerHints, scores: r.scores, timedOut: computerHints?.timedOut ?? false };
+  }
+  renderBoard(false);
 }
 
 async function requestAnalyze(): Promise<void> {
@@ -614,6 +649,7 @@ function startBookDownload(kind: "score" | "move", generation: number): void {
       if (kind === "score") bookDownloads.score = r.type === "error" ? r.message : "";
       else bookDownloads.move = r.type === "error" ? r.message : "";
       reportBook(r);
+      if (kind === "score" && r.type === "ready") void requestAvailableScores();
     } catch (e) {
       if (generation !== bookGeneration || !bookOn || engineFailed) return;
       if (isAbortError(e)) return;

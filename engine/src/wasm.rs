@@ -81,6 +81,21 @@ impl WasmEngine {
         }
     }
 
+    /// Read-only hint scores, including children proved by the latest search.
+    /// Unknown and full columns are `INVALID_MOVE`; search stats are unchanged.
+    #[wasm_bindgen(js_name = knownColumnScores)]
+    pub fn known_column_scores(&self, moves: &[u8]) -> Vec<i16> {
+        let mut p = Position::new();
+        if !p.play_moves(moves) {
+            return vec![INVALID_MOVE as i16; 7];
+        }
+        self.solver
+            .known_column_scores(&p)
+            .iter()
+            .map(|&s| s as i16)
+            .collect()
+    }
+
     #[wasm_bindgen(js_name = moveBookDepth)]
     pub fn move_book_depth(&self) -> u8 {
         self.solver

@@ -19,9 +19,11 @@ export type WorkerReq =
   | { id: number; type: "setTimeout"; ms: number }
   | { id: number; type: "solve"; moves: number[] }
   | { id: number; type: "analyze"; moves: number[] }
+  | { id: number; type: "availableScores"; moves: number[] }
   | { id: number; type: "bestMove"; moves: number[] };
 
 export type WorkerRes =
+  | { id: number; type: "availableScores"; scores: number[] }
   | {
       id: number;
       type: "ready";
@@ -55,6 +57,8 @@ export type WorkerRes =
       type: "moved";
       col: number;
       moveScores: CompleteColumnScores | null;
+      /** Exact scores already known, with INVALID for unknown or full columns. */
+      hintScores: number[];
       nodes: number;
       micros: number;
       timedOut: boolean;
