@@ -25,6 +25,7 @@ import {
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
+import { restoreRetainedBooks, shouldDownloadBooks } from "./bookRestore";
 import { createWorkerReplace } from "./workerReplace";
 
 const history: number[] = [];
@@ -104,28 +105,29 @@ function initTimeoutMs(): number {
   return new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs;
 }
 
-async function restoreRetainedBooks(
-  client: { request(msg: EngineRequest): Promise<WorkerRes> },
-  ready: WorkerRes,
-): Promise<void> {
-  reportBook(ready);
-  if (!bookOn) return;
-  if (retainedScoreBook) {
-    const r = await client.request({ type: "loadScoreBook", bytes: retainedScoreBook.slice(0) });
-    bookDownloads.score = r.type === "error" ? r.message : "";
-    reportBook(r);
-  }
-  if (retainedMoveBook) {
-    const r = await client.request({ type: "loadMoveBook", bytes: retainedMoveBook.slice(0) });
-    bookDownloads.move = r.type === "error" ? r.message : "";
-    reportBook(r);
-  }
+function bookRestoreHost() {
+  return {
+    bookOn: () => bookOn,
+    generation: () => bookGeneration,
+    retainedScore: () => retainedScoreBook,
+    retainedMove: () => retainedMoveBook,
+    report: reportBook,
+    loaded(kind: "score" | "move" | "clear", r: WorkerRes) {
+      if (kind === "score") bookDownloads.score = r.type === "error" ? r.message : "";
+      if (kind === "move") bookDownloads.move = r.type === "error" ? r.message : "";
+      if (kind === "clear") bookDownloads = { score: "", move: "" };
+      reportBook(r);
+    },
+  };
 }
 
 function onReplacementReady(): void {
   if (engineFailed) return;
   engineReady = true;
   if (!gameOver()) engineLine.textContent = "Solver ready.";
+  if (shouldDownloadBooks({ bookOn, retainedScoreBook, retainedMoveBook })) {
+    loadDownloadedBooks();
+  }
   applyHintComputer("engineReady", false);
 }
 
@@ -143,7 +145,7 @@ const workerSession = createWorkerReplace({
   onReplaceStart() {
     engineReady = false;
   },
-  restoreBooks: restoreRetainedBooks,
+  restoreBooks: (client, ready) => restoreRetainedBooks(client, ready, bookRestoreHost()),
   afterReady: onReplacementReady,
   onInitFailure: declareSolverFailed,
   isEngineFailed: () => engineFailed,
@@ -481,17 +483,17 @@ bookChk.addEventListener("change", () => {
   if (!bookOn) {
     retainedScoreBook = null;
     retainedMoveBook = null;
-  }
-  if (!engineReady || engineFailed) return;
-  if (bookOn) {
-    loadDownloadedBooks();
-  } else {
     const generation = ++bookGeneration;
     bookDownloads = { score: "", move: "" };
+    reportBook();
+    if (!engineReady || engineFailed) return;
     void send({ type: "clearDownloadedBooks" }).then((r) => {
       if (generation === bookGeneration) reportBook(r);
     });
+    return;
   }
+  if (!engineReady || engineFailed) return;
+  loadDownloadedBooks();
 });
 
 delay.addEventListener("input", () => {

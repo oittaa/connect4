@@ -6,6 +6,7 @@
 
 import { createEngineClient, WORKER_REPLACED, type EnginePort } from "./engineClient.ts";
 import type { WorkerReq, WorkerRes } from "./engineProtocol.ts";
+import { restoreRetainedBooks, shouldDownloadBooks, type BookRestoreHost } from "./bookRestore.ts";
 import { createWorkerReplace, type SpawnedWorker, type WorkerReplaceHost } from "./workerReplace.ts";
 
 function assert(cond: boolean, msg: string): void {
@@ -16,7 +17,7 @@ function same(got: unknown, expected: unknown, msg: string): void {
   assert(JSON.stringify(got) === JSON.stringify(expected), `${msg}: got ${JSON.stringify(got)}`);
 }
 
-function ready(id: number): WorkerRes {
+function ready(id: number, extra: Partial<Extract<WorkerRes, { type: "ready" }>> = {}): WorkerRes {
   return {
     id,
     type: "ready",
@@ -24,6 +25,7 @@ function ready(id: number): WorkerRes {
     bookDepth: 8,
     moveBookPopulated: 12,
     moveBookDepth: 8,
+    ...extra,
   };
 }
 
@@ -31,7 +33,9 @@ type MockWorker = SpawnedWorker & {
   posted: WorkerReq[];
   terminateCount: number;
   pendingInit: number | null;
+  pendingScore: number | null;
   releaseInit(): void;
+  releaseScoreLoad(): void;
 };
 
 type Session = {
@@ -39,13 +43,14 @@ type Session = {
   role: "human" | "perfect";
 };
 
-function mockWorkers(): { spawn: () => SpawnedWorker; workers: MockWorker[] } {
+function mockWorkers(opts: { holdScoreLoad?: boolean } = {}): { spawn: () => SpawnedWorker; workers: MockWorker[] } {
   const workers: MockWorker[] = [];
   return {
     workers,
     spawn(): SpawnedWorker {
       const posted: WorkerReq[] = [];
       let pendingInit: number | null = null;
+      let pendingScore: number | null = null;
       const port: EnginePort = {
         onmessage: null,
         onerror: null,
@@ -57,7 +62,16 @@ function mockWorkers(): { spawn: () => SpawnedWorker; workers: MockWorker[] } {
             worker.pendingInit = message.id;
             return;
           }
-          if (message.type === "loadScoreBook" || message.type === "loadMoveBook") {
+          if (message.type === "loadScoreBook" && opts.holdScoreLoad) {
+            pendingScore = message.id;
+            worker.pendingScore = message.id;
+            return;
+          }
+          if (
+            message.type === "loadScoreBook" ||
+            message.type === "loadMoveBook" ||
+            message.type === "clearDownloadedBooks"
+          ) {
             this.onmessage?.({ data: ready(message.id) });
           }
         },
@@ -66,6 +80,7 @@ function mockWorkers(): { spawn: () => SpawnedWorker; workers: MockWorker[] } {
         posted,
         terminateCount: 0,
         pendingInit: null,
+        pendingScore: null,
         client: createEngineClient(port),
         terminate() {
           worker.terminateCount++;
@@ -76,6 +91,15 @@ function mockWorkers(): { spawn: () => SpawnedWorker; workers: MockWorker[] } {
           pendingInit = null;
           worker.pendingInit = null;
           port.onmessage?.({ data: ready(id) });
+        },
+        releaseScoreLoad() {
+          if (pendingScore === null) throw new Error("score load is not pending");
+          const id = pendingScore;
+          pendingScore = null;
+          worker.pendingScore = null;
+          port.onmessage?.({
+            data: ready(id, { bookLen: 129_498, bookDepth: 8, moveBookPopulated: 0, moveBookDepth: 0 }),
+          });
         },
       };
       workers.push(worker);
@@ -222,6 +246,105 @@ const afterBack = inflight.slice(0, -1);
   await microtasks(10);
   same(computeTypes(mocks.workers[1]), [], "no-op afterReady posts no captured compute");
   same(order, ["unready", "books-start", "books-done", "ready"], "one replace cycle");
+}
+
+{
+  const mocks = mockWorkers({ holdScoreLoad: true });
+  const books = {
+    bookOn: true,
+    generation: 1,
+    retainedScoreBook: new ArrayBuffer(8) as ArrayBuffer | null,
+    retainedMoveBook: new ArrayBuffer(8) as ArrayBuffer | null,
+  };
+  let downloadAfterReady = false;
+  const bookHost: BookRestoreHost = {
+    bookOn: () => books.bookOn,
+    generation: () => books.generation,
+    retainedScore: () => books.retainedScoreBook,
+    retainedMove: () => books.retainedMoveBook,
+    report() {},
+    loaded() {},
+  };
+  const ctrl = createWorkerReplace({
+    spawn: mocks.spawn,
+    initTimeoutMs: () => 12_000,
+    onReplaceStart() {},
+    restoreBooks: (client, readyMsg) => restoreRetainedBooks(client, readyMsg, bookHost),
+    afterReady() {
+      downloadAfterReady = shouldDownloadBooks(books);
+    },
+    onInitFailure() {},
+    isEngineFailed: () => false,
+  });
+  void ctrl.send({ type: "analyze", moves: inflight.slice() });
+  await microtasks();
+  const next = ctrl.send({ type: "analyze", moves: [] });
+  await microtasks();
+  mocks.workers[1].releaseInit();
+  await microtasks(10);
+  assert(mocks.workers[1].pendingScore !== null, "score-book restore is pending");
+  books.bookOn = false;
+  books.retainedScoreBook = null;
+  books.retainedMoveBook = null;
+  books.generation++;
+  mocks.workers[1].releaseScoreLoad();
+  await next;
+  await microtasks(10);
+  same(
+    mocks.workers[1].posted.map((m) => m.type),
+    ["init", "loadScoreBook", "clearDownloadedBooks"],
+    "Off during pending score restore clears instead of keeping 8-ply",
+  );
+  assert(!downloadAfterReady, "Off after replace does not restart downloads");
+}
+
+{
+  const mocks = mockWorkers();
+  const books = {
+    bookOn: true,
+    generation: 1,
+    retainedScoreBook: new ArrayBuffer(8) as ArrayBuffer | null,
+    retainedMoveBook: new ArrayBuffer(8) as ArrayBuffer | null,
+  };
+  let downloadAfterReady = false;
+  const bookHost: BookRestoreHost = {
+    bookOn: () => books.bookOn,
+    generation: () => books.generation,
+    retainedScore: () => books.retainedScoreBook,
+    retainedMove: () => books.retainedMoveBook,
+    report() {},
+    loaded() {},
+  };
+  const ctrl = createWorkerReplace({
+    spawn: mocks.spawn,
+    initTimeoutMs: () => 12_000,
+    onReplaceStart() {},
+    restoreBooks: (client, readyMsg) => restoreRetainedBooks(client, readyMsg, bookHost),
+    afterReady() {
+      downloadAfterReady = shouldDownloadBooks(books);
+    },
+    onInitFailure() {},
+    isEngineFailed: () => false,
+  });
+  void ctrl.send({ type: "analyze", moves: inflight.slice() });
+  await microtasks();
+  const next = ctrl.send({ type: "analyze", moves: [] });
+  await microtasks();
+  assert(mocks.workers[1].pendingInit !== null, "init held for Off then On");
+  books.bookOn = false;
+  books.retainedScoreBook = null;
+  books.retainedMoveBook = null;
+  books.generation++;
+  books.bookOn = true;
+  mocks.workers[1].releaseInit();
+  await next;
+  await microtasks(10);
+  same(
+    mocks.workers[1].posted.map((m) => m.type),
+    ["init"],
+    "Off then On during init does not reload discarded retained bytes",
+  );
+  assert(downloadAfterReady, "On without retained bytes restarts downloads when replacement completes");
 }
 
 console.log("worker replace checks ok");
