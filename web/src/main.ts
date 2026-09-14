@@ -601,10 +601,10 @@ function reportBooks(r?: WorkerRes): void {
   if (!booksState) return;
   const move =
     booksState.moveBookPopulated > 0
-      ? `move book ${booksState.moveBookPopulated.toLocaleString()} moves (depth ${booksState.moveBookDepth})`
+      ? `move book ${booksState.moveBookPopulated.toLocaleString()} moves (through move ${booksState.moveBookMoves})`
       : "move book not loaded";
   booksLine.textContent = [
-    `Score book ${booksState.scoreBookLen.toLocaleString()} positions (depth ${booksState.scoreBookDepth})`,
+    `Score book ${booksState.scoreBookLen.toLocaleString()} positions (through move ${booksState.scoreBookMoves})`,
     move,
     bookDownloads.score,
     bookDownloads.move,

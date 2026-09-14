@@ -16,6 +16,8 @@ use crate::position::Position;
 const MAGIC: &[u8; 4] = b"C4BK";
 const VERSION: u8 = 2;
 const KEY_BYTES: u8 = 4;
+// Position::key3 fits in the format's 32-bit key through this ply.
+pub const MAX_SCORE_BOOK_PLY: u8 = 14;
 
 #[derive(Clone, Debug, Default)]
 pub struct ScoreBook {
@@ -40,6 +42,11 @@ impl ScoreBook {
     }
 
     pub fn depth(&self) -> u8 {
+        self.depth
+    }
+
+    /// Last move supplied by a complete score book (using the resulting boards).
+    pub fn moves_covered(&self) -> u8 {
         self.depth
     }
 

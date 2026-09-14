@@ -1,8 +1,8 @@
 use engine::book_io::write_atomic;
-use engine::move_book::MoveBook;
+use engine::move_book::{MoveBook, MAX_MOVE_BOOK_PLY};
 use engine::move_book_gen::{generate, GenerateOptions};
 use engine::position::Position;
-use engine::score_book::ScoreBook;
+use engine::score_book::{ScoreBook, MAX_SCORE_BOOK_PLY};
 use engine::score_to_move::{convert_score_to_move, validate_against_score_book};
 use engine::solver::{winning_move_number, Solver, INVALID_MOVE};
 use std::env;
@@ -22,9 +22,9 @@ Usage:
   c4solver bench [--score-book FILE] [--limit N] [--no-mirror] FILE
                                   run a Pons-style test file (seq score)
   c4solver empty [--score-book FILE] [--no-mirror]
-  c4solver gen-score-book --depth N --out FILE [--from-score-book FILE] [--tt-bits N] [--threads N]
+  c4solver gen-score-book --moves N --out FILE [--from-score-book FILE] [--tt-bits N] [--threads N]
   c4solver convert-score-to-move --score-book FILE --out FILE
-  c4solver gen-move-book --depth N --out FILE [--score-book FILE] [--from-move-book FILE]
+  c4solver gen-move-book --moves N --out FILE [--score-book FILE] [--from-move-book FILE]
                          [--tt-bits N] [--threads N] [--max-jobs N]
   c4solver validate-move-book --score-book FILE --move-book FILE
 
@@ -32,9 +32,10 @@ For gen-score-book, if --out already exists, generation continues from it
 (same as --from-score-book FILE). Already-scored positions are not re-solved.
 gen-move-book searches missing frontier positions and derives earlier moves from
 their scores. It resumes from FILE.checkpoint; --max-jobs bounds a run without
-publishing an incomplete move book. The default score book is the embedded 4-ply.
-Move-book depth is the stored position ply: --depth 11 supplies moves through 12.
-Conversion and validation require a score book one ply deeper than the move book.
+publishing an incomplete move book. The default score book covers four moves.
+For both generators, --moves N means instant moves through move N.
+Conversion preserves that coverage; validation needs a score book covering
+at least as many moves as the move book.
 
 MOVES is a string of digits 1-7, e.g. 444526. Empty string = empty board.
 --no-mirror disables left-right TT canonicalization.
@@ -98,7 +99,7 @@ fn positional_seq(args: &[String]) -> &str {
             || a == "--score-book"
             || a == "--from-score-book"
             || a == "--out"
-            || a == "--depth"
+            || a == "--moves"
             || a == "--limit"
             || a == "--threads"
             || a == "--move-book"
@@ -127,9 +128,9 @@ fn load_score_book_opt(solver: &mut Solver, path: Option<&str>) {
             process::exit(1);
         });
         eprintln!(
-            "loaded score book {p}: {} positions, depth {}",
+            "loaded score book {p}: {} positions, instant moves through {}",
             solver.score_book().len(),
-            solver.score_book().depth()
+            solver.score_book().moves_covered()
         );
     }
 }
@@ -286,18 +287,26 @@ fn required_arg<'a>(args: &'a [String], name: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("missing {name}; run c4solver for usage"))
 }
 
+fn requested_moves(args: &[String], maximum: u8) -> Result<u8, String> {
+    required_arg(args, "--moves")?
+        .parse::<u8>()
+        .ok()
+        .filter(|&moves| (1..=maximum).contains(&moves))
+        .ok_or_else(|| format!("--moves must be between 1 and {maximum}"))
+}
+
 fn run_score_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     validate_options(
         args,
         &[
-            "--depth",
+            "--moves",
             "--out",
             "--from-score-book",
             "--tt-bits",
             "--threads",
         ],
     )?;
-    let depth: u8 = required_arg(args, "--depth")?.parse()?;
+    let moves = requested_moves(args, MAX_SCORE_BOOK_PLY)?;
     let out = required_arg(args, "--out")?;
     let source = arg_value(args, "--from-score-book");
     let load_path = source.unwrap_or(out);
@@ -311,13 +320,13 @@ fn run_score_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let start_len = score_book.len();
     let threads = thread_count(args);
     eprintln!(
-        "generating score book to ply {depth}, {start_len} existing positions, {threads} threads"
+        "generating score book for moves through {moves}, {start_len} existing positions, {threads} threads"
     );
     let mut saved_at = std::time::Instant::now();
     let mut reported_at = saved_at;
     solver.fill_score_book_with(
         Position::new(),
-        depth,
+        moves,
         &mut score_book,
         threads,
         |score_book| {
@@ -335,10 +344,10 @@ fn run_score_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     );
     write_atomic(Path::new(out), &score_book.save())?;
     println!(
-        "wrote {out}: {} positions ({} new), depth {}",
+        "wrote {out}: {} positions ({} new), instant moves through {}",
         score_book.len(),
         score_book.len().saturating_sub(start_len),
-        score_book.depth()
+        score_book.moves_covered()
     );
     Ok(())
 }
@@ -351,7 +360,7 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         args,
         if generating {
             &[
-                "--depth",
+                "--moves",
                 "--out",
                 "--score-book",
                 "--from-move-book",
@@ -374,8 +383,9 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         return Err("missing --score-book".into());
     };
     let move_book = if generating {
+        let moves = requested_moves(args, MAX_MOVE_BOOK_PLY + 1)?;
         let options = GenerateOptions {
-            max_ply: required_arg(args, "--depth")?.parse()?,
+            max_ply: moves - 1,
             threads: thread_count(args),
             tt_bits: tt_bits(args),
             max_jobs: arg_value(args, "--max-jobs").map(str::parse).transpose()?,
@@ -387,8 +397,8 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .transpose()?;
         let checkpoint = format!("{path}.checkpoint");
         eprintln!(
-            "generating move book through ply {}, {} threads, TT 2^{} per thread",
-            options.max_ply, options.threads, options.tt_bits
+            "generating move book for moves through {moves}, {} threads, TT 2^{} per thread",
+            options.threads, options.tt_bits
         );
         let mut reported_at = started;
         let result = generate(
@@ -426,11 +436,10 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         write_atomic(Path::new(path), &bytes)?;
     }
     println!(
-        "{} {path}: {} bytes, stored ply {}, instant moves through {}, {} populated slots, {:.3}s",
+        "{} {path}: {} bytes, instant moves through {}, {} populated slots, {:.3}s",
         if validating { "verified" } else { "wrote" },
         bytes.len(),
-        move_book.max_ply(),
-        move_book.max_ply() + 1,
+        move_book.moves_covered(),
         move_book.populated(),
         started.elapsed().as_secs_f64()
     );
@@ -439,6 +448,9 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
 fn validate_options(args: &[String], allowed: &[&str]) -> Result<(), String> {
     for pair in args[1..].chunks(2) {
+        if pair[0] == "--depth" {
+            return Err("use --moves N for instant moves through move N".into());
+        }
         if !allowed.contains(&pair[0].as_str()) {
             return Err(format!("unknown option {}", pair[0]));
         }

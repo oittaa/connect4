@@ -42,9 +42,9 @@ function ready(id: number): WorkerRes {
     id,
     type: "ready",
     scoreBookLen: 1,
-    scoreBookDepth: 4,
+    scoreBookMoves: 4,
     moveBookPopulated: 0,
-    moveBookDepth: 0,
+    moveBookMoves: 0,
   };
 }
 

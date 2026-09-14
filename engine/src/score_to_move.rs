@@ -11,7 +11,7 @@ pub fn convert_score_to_move(score_book: &ScoreBook) -> Result<MoveBook, String>
     let depth = score_book
         .depth()
         .checked_sub(1)
-        .ok_or("score book needs child positions")?;
+        .ok_or("score book must cover at least one move")?;
     let mut move_book = MoveBook::empty(depth)?;
     for (key, target) in score_book.entries() {
         let pos = decode(key, score_book.depth())?;
@@ -39,8 +39,8 @@ pub fn validate_against_score_book(
     score_book: &ScoreBook,
     move_book: &MoveBook,
 ) -> Result<usize, String> {
-    if score_book.depth() <= move_book.max_ply() {
-        return Err("score book must include the move book's child positions".into());
+    if score_book.moves_covered() < move_book.moves_covered() {
+        return Err("score book must cover at least as many moves as the move book".into());
     }
     let mut owners: Vec<Vec<u64>> = EXPECTED_SLOT_COUNTS[..=move_book.max_ply() as usize]
         .iter()
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn shipped_book_matches_every_source_position_and_its_mirror() {
         let score_book = ScoreBook::load(include_bytes!("../../books/10ply.c4book")).unwrap();
-        let bytes = include_bytes!("../../books/9ply.c4move");
+        let bytes = include_bytes!("../../books/10ply.c4move");
         let move_book = MoveBook::load(bytes).unwrap();
         assert_eq!(score_book.len(), 1_208_493);
         assert_eq!(move_book.max_ply(), 9);

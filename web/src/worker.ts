@@ -20,8 +20,8 @@ type Engine = {
   setTimeoutMs(ms: number): void;
   resetTt(): void;
   scoreBookLen(): number;
-  scoreBookDepth(): number;
-  moveBookDepth(): number;
+  scoreBookMoves(): number;
+  moveBookMoves(): number;
   moveBookPopulated(): number;
   moveBookHit(): boolean;
   cacheGet(moves: Uint8Array): Int16Array;
@@ -111,9 +111,9 @@ function ready(id: number, eng: Engine): WorkerRes {
     id,
     type: "ready",
     scoreBookLen: eng.scoreBookLen(),
-    scoreBookDepth: eng.scoreBookDepth(),
+    scoreBookMoves: eng.scoreBookMoves(),
     moveBookPopulated: eng.moveBookPopulated(),
-    moveBookDepth: eng.moveBookDepth(),
+    moveBookMoves: eng.moveBookMoves(),
   };
 }
 

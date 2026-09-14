@@ -57,9 +57,9 @@ impl WasmEngine {
         self.solver.timed_out()
     }
 
-    #[wasm_bindgen(js_name = scoreBookDepth)]
-    pub fn score_book_depth(&self) -> u8 {
-        self.solver.score_book().depth()
+    #[wasm_bindgen(js_name = scoreBookMoves)]
+    pub fn score_book_moves(&self) -> u8 {
+        self.solver.score_book().moves_covered()
     }
 
     #[wasm_bindgen(js_name = scoreBookLen)]
@@ -96,11 +96,11 @@ impl WasmEngine {
             .collect()
     }
 
-    #[wasm_bindgen(js_name = moveBookDepth)]
-    pub fn move_book_depth(&self) -> u8 {
+    #[wasm_bindgen(js_name = moveBookMoves)]
+    pub fn move_book_moves(&self) -> u8 {
         self.solver
             .move_book()
-            .map(|move_book| move_book.max_ply())
+            .map(|move_book| move_book.moves_covered())
             .unwrap_or(0)
     }
 

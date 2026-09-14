@@ -28,9 +28,9 @@ export type WorkerRes =
       id: number;
       type: "ready";
       scoreBookLen: number;
-      scoreBookDepth: number;
+      scoreBookMoves: number;
       moveBookPopulated: number;
-      moveBookDepth: number;
+      moveBookMoves: number;
     }
   | {
       id: number;

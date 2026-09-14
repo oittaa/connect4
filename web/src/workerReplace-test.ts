@@ -22,9 +22,9 @@ function ready(id: number, extra: Partial<Extract<WorkerRes, { type: "ready" }>>
     id,
     type: "ready",
     scoreBookLen: 8,
-    scoreBookDepth: 8,
+    scoreBookMoves: 8,
     moveBookPopulated: 12,
-    moveBookDepth: 8,
+    moveBookMoves: 10,
     ...extra,
   };
 }
@@ -98,7 +98,7 @@ function mockWorkers(opts: { holdScoreLoad?: boolean } = {}): { spawn: () => Spa
           pendingScore = null;
           worker.pendingScore = null;
           port.onmessage?.({
-            data: ready(id, { scoreBookLen: 129_498, scoreBookDepth: 8, moveBookPopulated: 0, moveBookDepth: 0 }),
+            data: ready(id, { scoreBookLen: 129_498, scoreBookMoves: 8, moveBookPopulated: 0, moveBookMoves: 0 }),
           });
         },
       };

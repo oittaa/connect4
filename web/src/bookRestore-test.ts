@@ -22,15 +22,15 @@ function ready(id: number, extra: Partial<Extract<WorkerRes, { type: "ready" }>>
     id,
     type: "ready",
     scoreBookLen: 4,
-    scoreBookDepth: 4,
+    scoreBookMoves: 4,
     moveBookPopulated: 0,
-    moveBookDepth: 0,
+    moveBookMoves: 0,
     ...extra,
   };
 }
 
-const ply8 = { scoreBookLen: 129_498, scoreBookDepth: 8, moveBookPopulated: 0, moveBookDepth: 0 };
-const move9 = { scoreBookLen: 129_498, scoreBookDepth: 8, moveBookPopulated: 402_045, moveBookDepth: 9 };
+const ply8 = { scoreBookLen: 129_498, scoreBookMoves: 8, moveBookPopulated: 0, moveBookMoves: 0 };
+const move10 = { scoreBookLen: 129_498, scoreBookMoves: 8, moveBookPopulated: 402_045, moveBookMoves: 10 };
 
 type Session = {
   downloadedBooksEnabled: boolean;
@@ -112,9 +112,9 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
 
   same(types(client.posted), ["loadScoreBook", "clearDownloadedBooks"], "Off during restore clears the 8-ply load");
   const last = session.applied[session.applied.length - 1];
-  assert(last?.type === "ready" && last.scoreBookDepth === 4, "applied book state is the clear, not 8-ply");
+  assert(last?.type === "ready" && last.scoreBookMoves === 4, "applied book state is the clear, not 8-ply");
   assert(
-    !session.applied.some((r) => r.type === "ready" && r.scoreBookDepth === 8 && r.scoreBookLen === ply8.scoreBookLen),
+    !session.applied.some((r) => r.type === "ready" && r.scoreBookMoves === 8 && r.scoreBookLen === ply8.scoreBookLen),
     "superseded 8-ply ready is not applied",
   );
   assert(!shouldDownloadBooks(session), "Off does not restart downloads");
@@ -154,9 +154,9 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
   client.release("loadScoreBook", ready(2, ply8));
   await Promise.resolve();
   same(types(client.posted), ["loadScoreBook", "loadMoveBook"], "both retained books load when the toggle stays on");
-  client.release("loadMoveBook", ready(3, move9));
+  client.release("loadMoveBook", ready(3, move10));
   await done;
-  assert(session.applied.some((r) => r.type === "ready" && r.moveBookPopulated === move9.moveBookPopulated), "move book applied");
+  assert(session.applied.some((r) => r.type === "ready" && r.moveBookPopulated === move10.moveBookPopulated), "move book applied");
   assert(!shouldDownloadBooks(session), "retained bytes still present, no refetch");
 }
 

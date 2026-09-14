@@ -6,7 +6,7 @@ use engine::{MoveBook, Position, ScoreBook, Solver};
 fn main() {
     let path = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "books/9ply.c4move".into());
+        .unwrap_or_else(|| "books/10ply.c4move".into());
     let move_book = MoveBook::load(&std::fs::read(path).expect("read move book")).unwrap();
     let score_book = ScoreBook::load(include_bytes!("../../books/8ply.c4book")).unwrap();
     println!("moves,move_book,column,nodes,micros,timed_out,move_book_hit");

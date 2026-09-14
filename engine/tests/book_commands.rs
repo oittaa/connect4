@@ -54,13 +54,14 @@ fn embedded_path() -> PathBuf {
 fn explicit_conversion_and_validation_commands() {
     let workspace = Workspace::new();
     let source = embedded_path();
-    workspace.succeeds(&[
+    let converted = workspace.succeeds(&[
         "convert-score-to-move",
         "--score-book",
         source.to_str().unwrap(),
         "--out",
         "converted.c4move",
     ]);
+    assert!(String::from_utf8_lossy(&converted.stdout).contains("instant moves through 4"));
     workspace.succeeds(&[
         "validate-move-book",
         "--score-book",
@@ -71,6 +72,7 @@ fn explicit_conversion_and_validation_commands() {
     let move_book =
         MoveBook::load(&fs::read(workspace.0.join("converted.c4move")).unwrap()).unwrap();
     assert_eq!(move_book.max_ply(), 3);
+    assert_eq!(move_book.moves_covered(), 4);
     assert_eq!(move_book.get(&Position::new()), Some(3));
 }
 
@@ -84,8 +86,8 @@ fn direct_generation_resumes_without_publishing_partial_moves() {
         "empty.c4book",
         "--out",
         "generated.c4move",
-        "--depth",
-        "3",
+        "--moves",
+        "4",
         "--threads",
         "2",
         "--tt-bits",
@@ -118,7 +120,7 @@ fn score_generation_fills_holes_at_the_recorded_depth() {
     fs::write(&path, partial.save()).unwrap();
     workspace.succeeds(&[
         "gen-score-book",
-        "--depth",
+        "--moves",
         "4",
         "--out",
         "partial.c4book",
@@ -147,7 +149,7 @@ fn retired_or_invalid_options_fail_before_generation() {
     assert!(!workspace
         .run(&[
             "gen-move-book",
-            "--depth",
+            "--moves",
             "3",
             "--out",
             "output.c4move",
@@ -160,5 +162,90 @@ fn retired_or_invalid_options_fail_before_generation() {
         .run(&["gen-score-book", "--depth"])
         .status
         .success());
+    assert_eq!(fs::read_dir(&workspace.0).unwrap().count(), 0);
+}
+
+#[test]
+fn equal_move_requests_give_both_books_the_same_coverage() {
+    let workspace = Workspace::new();
+    for moves in [1, 4] {
+        let count = moves.to_string();
+        let score_path = format!("score-{count}.c4book");
+        let move_path = format!("move-{count}.c4move");
+        let converted_path = format!("converted-{count}.c4move");
+        for (command, path) in [
+            ("gen-score-book", &score_path),
+            ("gen-move-book", &move_path),
+        ] {
+            let mut args = vec![
+                command,
+                "--moves",
+                &count,
+                "--out",
+                path,
+                "--threads",
+                "1",
+                "--tt-bits",
+                "16",
+            ];
+            if command == "gen-move-book" {
+                args.extend(["--score-book", &score_path]);
+            }
+            let output = workspace.succeeds(&args);
+            assert!(String::from_utf8_lossy(&output.stdout)
+                .contains(&format!("instant moves through {moves}")));
+        }
+        workspace.succeeds(&[
+            "convert-score-to-move",
+            "--score-book",
+            &score_path,
+            "--out",
+            &converted_path,
+        ]);
+        let score_book = ScoreBook::load(&fs::read(workspace.0.join(score_path)).unwrap()).unwrap();
+        let move_bytes = fs::read(workspace.0.join(move_path)).unwrap();
+        let move_book = MoveBook::load(&move_bytes).unwrap();
+        assert_eq!(score_book.moves_covered(), moves);
+        assert_eq!(move_book.moves_covered(), moves);
+        assert_eq!(
+            move_bytes,
+            fs::read(workspace.0.join(converted_path)).unwrap()
+        );
+
+        let mut before_last = Position::new();
+        for _ in 1..moves {
+            before_last.play_col(3);
+        }
+        assert!(move_book.get(&before_last).is_some());
+        let mut after_last = before_last;
+        after_last.play_col(3);
+        assert!(score_book.get(&after_last).is_some());
+        assert!(move_book.get(&after_last).is_none());
+        after_last.play_col(3);
+        assert!(score_book.get(&after_last).is_none());
+    }
+}
+
+#[test]
+fn invalid_move_counts_are_rejected_without_creating_files() {
+    let workspace = Workspace::new();
+    for command in ["gen-score-book", "gen-move-book"] {
+        for count in ["0", "-1", "256", "oops"] {
+            let output = workspace.run(&[command, "--moves", count, "--out", "invalid"]);
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("--moves must be between 1 and")
+            );
+        }
+        let old_flag = workspace.run(&[command, "--depth", "4", "--out", "invalid"]);
+        assert!(!old_flag.status.success());
+        assert!(String::from_utf8_lossy(&old_flag.stderr).contains("use --moves N"));
+    }
+    for (command, count) in [("gen-score-book", "15"), ("gen-move-book", "13")] {
+        assert!(!workspace
+            .run(&[command, "--moves", count, "--out", "invalid"])
+            .status
+            .success());
+    }
     assert_eq!(fs::read_dir(&workspace.0).unwrap().count(), 0);
 }

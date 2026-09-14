@@ -49,6 +49,17 @@ async function expectScores(page: Page): Promise<void> {
   await expect(page.locator("#board .best-col").first()).toBeVisible();
 }
 
+test("book labels count moves supplied and reset after unloading", async ({ page }) => {
+  await openApp(page);
+  const books = page.locator("#books-line");
+  await expect(books).toContainText(/Score book .*\(through move 8\)/);
+  await expect(books).toContainText(/move book .*\(through move 10\)/);
+  await expect(books).not.toContainText("depth");
+  await page.locator("#books").uncheck();
+  await expect(books).toContainText(/Score book .*\(through move 4\)/);
+  await expect(books).toContainText("move book not loaded");
+});
+
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
   test(`board stays fixed through hints and human/computer turns at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);

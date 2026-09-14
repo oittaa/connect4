@@ -72,7 +72,9 @@ impl MoveBook {
     pub fn empty(max_ply: u8) -> Result<Self, String> {
         if max_ply > MAX_MOVE_BOOK_PLY {
             return Err(format!(
-                "unsupported move-book depth {max_ply} (maximum {MAX_MOVE_BOOK_PLY})"
+                "move-book coverage of {} moves exceeds the maximum of {}",
+                u16::from(max_ply) + 1,
+                MAX_MOVE_BOOK_PLY + 1
             ));
         }
         let height_tables = height_tables(max_ply);
@@ -95,6 +97,11 @@ impl MoveBook {
 
     pub fn max_ply(&self) -> u8 {
         self.max_ply
+    }
+
+    /// Last move supplied by a complete move book (the stored board's next move).
+    pub fn moves_covered(&self) -> u8 {
+        self.max_ply + 1
     }
 
     pub fn slots(&self) -> u32 {
@@ -196,7 +203,10 @@ impl MoveBook {
         }
         let max_ply = bytes[8];
         if max_ply > MAX_MOVE_BOOK_PLY {
-            return Err(format!("unsupported move-book depth {max_ply}"));
+            return Err(format!(
+                "unsupported move-book coverage: {} moves",
+                u16::from(max_ply) + 1
+            ));
         }
         if bytes[9] != BITS_PER_SLOT {
             return Err(format!("unsupported bits per slot {}", bytes[9]));
@@ -209,7 +219,7 @@ impl MoveBook {
         }
         let directory_count = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
         if directory_count != max_ply as usize + 1 {
-            return Err("directory count does not match depth".into());
+            return Err("directory count does not match move coverage".into());
         }
         let payload_start = FIXED_HEADER_LEN + directory_count * DIRECTORY_ENTRY_LEN;
         if bytes.len() < payload_start {
@@ -489,6 +499,7 @@ mod tests {
             assert_eq!(move_book.sections[ply].slots, slots);
         }
         let deeper = MoveBook::empty(11).unwrap();
+        assert_eq!(deeper.moves_covered(), 12);
         assert_eq!(deeper.save().len(), 1_471_622);
         assert_eq!(MoveBook::load(&deeper.save()).unwrap().max_ply(), 11);
     }
