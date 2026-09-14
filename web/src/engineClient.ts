@@ -8,6 +8,13 @@ export type EngineRequest = OmitId<ReplyReq>;
 /** Settled into pending requests on `error` / `messageerror`. */
 export const SOLVER_TRANSPORT_ERROR = "The solver stopped unexpectedly.";
 
+/** Settled into pending requests when the worker is terminated for a replacement. */
+export const WORKER_REPLACED = "worker replaced";
+
+export function isWorkerReplaced(r: WorkerRes): boolean {
+  return r.type === "error" && r.message === WORKER_REPLACED;
+}
+
 export type EnginePort = {
   postMessage(message: WorkerReq): void;
   onmessage: ((ev: { data: WorkerRes }) => void) | null;
@@ -20,14 +27,19 @@ export type EngineClient = {
   setTimeoutMs(ms: number): void;
   /** Stop posting. Pending and future requests resolve as errors. Does not notify `onFailure`. */
   fail(message?: string): void;
+  hasPendingCompute(): boolean;
 };
+
+export function isBlockingCompute(type: EngineRequest["type"] | WorkerReq["type"]): boolean {
+  return type === "analyze" || type === "bestMove" || type === "solve";
+}
 
 export function createEngineClient(
   port: { postMessage(message: WorkerReq): void },
   options?: { onFailure?: (detail: string) => void },
 ): EngineClient {
   let reqId = 1;
-  const pending = new Map<number, (r: WorkerRes) => void>();
+  const pending = new Map<number, { resolve: (r: WorkerRes) => void; type: EngineRequest["type"] | "setTimeout" }>();
   let failed: string | null = null;
   const sink = port as EnginePort;
 
@@ -39,16 +51,16 @@ export function createEngineClient(
     try {
       if (notify) options?.onFailure?.(detail || message);
     } finally {
-      for (const [id, fn] of queued) fn({ id, type: "error", message });
+      for (const [id, p] of queued) p.resolve({ id, type: "error", message });
     }
   }
 
   sink.onmessage = (ev) => {
     if (failed) return;
-    const fn = pending.get(ev.data.id);
-    if (!fn) return;
+    const p = pending.get(ev.data.id);
+    if (!p) return;
     pending.delete(ev.data.id);
-    fn(ev.data);
+    p.resolve(ev.data);
   };
 
   sink.onerror = (ev) => {
@@ -65,7 +77,7 @@ export function createEngineClient(
         return Promise.resolve({ id, type: "error", message: failed });
       }
       return new Promise((resolve) => {
-        pending.set(id, resolve);
+        pending.set(id, { resolve, type: msg.type });
         try {
           sink.postMessage({ ...msg, id } as WorkerReq);
         } catch (e) {
@@ -89,6 +101,13 @@ export function createEngineClient(
     },
     fail(message = SOLVER_TRANSPORT_ERROR) {
       failAll(message, false);
+    },
+    hasPendingCompute() {
+      if (failed) return false;
+      for (const p of pending.values()) {
+        if (isBlockingCompute(p.type)) return true;
+      }
+      return false;
     },
   };
 }

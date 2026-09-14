@@ -23,8 +23,10 @@ import {
   type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
-import { createEngineClient, type EngineRequest } from "./engineClient";
+import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
+import { restoreRetainedBooks, shouldDownloadBooks } from "./bookRestore";
+import { createWorkerReplace } from "./workerReplace";
 
 const history: number[] = [];
 let cursor = 0;
@@ -39,6 +41,8 @@ let bookOn = true;
 let bookGeneration = 0;
 let bookState: Extract<WorkerRes, { type: "ready" }> | null = null;
 let bookDownloads = { score: "", move: "" };
+let retainedScoreBook: ArrayBuffer | null = null;
+let retainedMoveBook: ArrayBuffer | null = null;
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
@@ -93,9 +97,66 @@ function declareSolverFailed(detail: string): void {
   renderBoard(false);
 }
 
-const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-const engineClient = createEngineClient(worker, { onFailure: declareSolverFailed });
-const send = (msg: EngineRequest) => engineClient.request(msg);
+function spawnWorker(): Worker {
+  return new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+}
+
+function initTimeoutMs(): number {
+  return new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs;
+}
+
+function bookRestoreHost() {
+  return {
+    bookOn: () => bookOn,
+    generation: () => bookGeneration,
+    retainedScore: () => retainedScoreBook,
+    retainedMove: () => retainedMoveBook,
+    report: reportBook,
+    loaded(kind: "score" | "move" | "clear", r: WorkerRes) {
+      if (kind === "score") bookDownloads.score = r.type === "error" ? r.message : "";
+      if (kind === "move") bookDownloads.move = r.type === "error" ? r.message : "";
+      if (kind === "clear") bookDownloads = { score: "", move: "" };
+      reportBook(r);
+    },
+  };
+}
+
+function onReplacementReady(): void {
+  if (engineFailed) return;
+  engineReady = true;
+  if (!gameOver()) engineLine.textContent = "Solver ready.";
+  if (shouldDownloadBooks({ bookOn, retainedScoreBook, retainedMoveBook })) {
+    loadDownloadedBooks();
+  }
+  applyHintComputer("engineReady", false);
+}
+
+const workerSession = createWorkerReplace({
+  spawn() {
+    const worker = spawnWorker();
+    return {
+      client: createEngineClient(worker, { onFailure: declareSolverFailed }),
+      terminate() {
+        worker.terminate();
+      },
+    };
+  },
+  initTimeoutMs,
+  onReplaceStart() {
+    engineReady = false;
+  },
+  restoreBooks: (client, ready) => restoreRetainedBooks(client, ready, bookRestoreHost()),
+  afterReady: onReplacementReady,
+  onInitFailure: declareSolverFailed,
+  isEngineFailed: () => engineFailed,
+  bookOn: () => bookOn,
+  bookGeneration: () => bookGeneration,
+});
+
+function send(msg: EngineRequest): Promise<WorkerRes> {
+  return workerSession.send(msg);
+}
+
 solverReload.addEventListener("click", () => location.reload());
 
 function played(): number[] {
@@ -321,7 +382,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     return;
   }
   const r = await send({ type: "bestMove", moves: turn.moves });
-  if (computerTurnStale(turn.generation)) return;
+  if (computerTurnStale(turn.generation) || isWorkerReplaced(r)) return;
   thinking = false;
   if (r.type !== "moved") {
     if (!engineFailed) {
@@ -347,7 +408,7 @@ async function requestAnalyze(): Promise<void> {
   engineLine.textContent = "analyzing…";
   renderBoard(false);
   const r = await send({ type: "analyze", moves: played() });
-  if (!analysisReplyApplies(token, analysisGeneration, hintContext())) return;
+  if (!analysisReplyApplies(token, analysisGeneration, hintContext()) || isWorkerReplaced(r)) return;
   analyzing = false;
   if (r.type === "analyzed") {
     analysis = { scores: r.scores, timedOut: r.timedOut };
@@ -421,16 +482,20 @@ analyzeChk.addEventListener("change", () => {
 
 bookChk.addEventListener("change", () => {
   bookOn = bookChk.checked;
-  if (!engineReady || engineFailed) return;
-  if (bookOn) {
-    loadDownloadedBooks();
-  } else {
+  if (!bookOn) {
+    retainedScoreBook = null;
+    retainedMoveBook = null;
     const generation = ++bookGeneration;
     bookDownloads = { score: "", move: "" };
+    reportBook();
+    if (!engineReady || engineFailed) return;
     void send({ type: "clearDownloadedBooks" }).then((r) => {
       if (generation === bookGeneration) reportBook(r);
     });
+    return;
   }
+  if (!engineReady || engineFailed) return;
+  loadDownloadedBooks();
 });
 
 delay.addEventListener("input", () => {
@@ -493,25 +558,51 @@ function reportBook(r?: WorkerRes): void {
   ].filter(Boolean).join(" · ");
 }
 
+async function fetchBookBytes(url: string, label: string): Promise<ArrayBuffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${label} download failed (${response.status})`);
+  return response.arrayBuffer();
+}
+
 function loadDownloadedBooks(): void {
   const generation = ++bookGeneration;
   bookDownloads = { score: "Downloading score book…", move: "Downloading move book…" };
   reportBook();
-  for (const [book, type, file] of [
-    ["score", "fetchScoreBook", "opening.c4book"],
-    ["move", "fetchMoveBook", "opening.c4move"],
-  ] as const) {
-    void send({ type, url: new URL(`books/${file}`, document.baseURI).href }).then((r) => {
+  void (async () => {
+    try {
+      const bytes = await fetchBookBytes(new URL("books/opening.c4book", document.baseURI).href, "Score book");
       if (generation !== bookGeneration || !bookOn || engineFailed) return;
-      bookDownloads[book] = r.type === "error" ? r.message : "";
+      retainedScoreBook = bytes.slice(0);
+      const r = await send({ type: "loadScoreBook", bytes: bytes.slice(0) });
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.score = r.type === "error" ? r.message : "";
       reportBook(r);
-    });
-  }
+    } catch (e) {
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.score = e instanceof Error ? e.message : String(e);
+      reportBook();
+    }
+  })();
+  void (async () => {
+    try {
+      const bytes = await fetchBookBytes(new URL("books/opening.c4move", document.baseURI).href, "Move book");
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      retainedMoveBook = bytes.slice(0);
+      const r = await send({ type: "loadMoveBook", bytes: bytes.slice(0) });
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.move = r.type === "error" ? r.message : "";
+      reportBook(r);
+    } catch (e) {
+      if (generation !== bookGeneration || !bookOn || engineFailed) return;
+      bookDownloads.move = e instanceof Error ? e.message : String(e);
+      reportBook();
+    }
+  })();
 }
 
 function onReady(r: WorkerRes): void {
   if (r.type !== "ready") {
-    engineClient.fail();
+    workerSession.client().fail();
     declareSolverFailed(r.type === "error" ? r.message : "Solver failed");
     return;
   }
@@ -536,7 +627,7 @@ renderBoard(false);
 
 void send({
   type: "init",
-  timeoutMs: new URLSearchParams(location.search).has("bench") ? 0 : timeoutMs,
+  timeoutMs: initTimeoutMs(),
 }).then(async (r) => {
   onReady(r);
   if (new URLSearchParams(location.search).has("bench") && engineReady) {
