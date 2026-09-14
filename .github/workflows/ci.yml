@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test engine
+        run: cargo test --locked -p engine
+      - name: Build engine
+        run: cargo build --locked -p engine
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install matching wasm-bindgen-cli
+        run: |
+          version=$(python3 -c "import tomllib; lock=tomllib.load(open('Cargo.lock','rb')); print(next(p['version'] for p in lock['package'] if p['name']=='wasm-bindgen'))")
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+      - name: Build WASM
+        run: ./scripts/build-wasm.sh
+      - name: Build web
+        run: npm run build
+        working-directory: web
