@@ -24,9 +24,25 @@ pub struct Table {
     gen: u8,
 }
 
+/// Solver clamps `--tt-bits` to 16..=27. `Table::new` also allows 12 for tests.
+const MIN_LOG: u32 = 12;
+const MAX_LOG: u32 = 27;
+const PRIME_LEN: usize = (MAX_LOG - MIN_LOG + 1) as usize;
+
+const PRIMES: [usize; PRIME_LEN] = {
+    let mut t = [0usize; PRIME_LEN];
+    let mut log = MIN_LOG;
+    while log <= MAX_LOG {
+        t[(log - MIN_LOG) as usize] = next_prime(1usize << log);
+        log += 1;
+    }
+    t
+};
+
 impl Table {
     pub fn new(log_size: u32) -> Self {
-        let size = next_prime(1usize << log_size);
+        let log_size = log_size.clamp(MIN_LOG, MAX_LOG);
+        let size = PRIMES[(log_size - MIN_LOG) as usize];
         let mut keys = vec![0u32; size].into_boxed_slice();
         let mut vals = vec![0u16; size].into_boxed_slice();
         advise_huge_pages(&mut keys);
@@ -104,7 +120,7 @@ fn unpack(val: u8) -> (i32, u8) {
     }
 }
 
-fn next_prime(n: usize) -> usize {
+const fn next_prime(n: usize) -> usize {
     let mut x = n | 1;
     while !is_prime(x) {
         x += 2;
@@ -112,7 +128,7 @@ fn next_prime(n: usize) -> usize {
     x
 }
 
-fn is_prime(n: usize) -> bool {
+const fn is_prime(n: usize) -> bool {
     if n < 2 {
         return false;
     }
@@ -120,7 +136,7 @@ fn is_prime(n: usize) -> bool {
         return n == 2;
     }
     let mut d = 3;
-    while d * d <= n {
+    while d <= n / d {
         if n % d == 0 {
             return false;
         }
@@ -172,5 +188,16 @@ mod tests {
         assert_eq!(t.get(12345), None);
         t.put(12345, -3, FLAG_UPPER);
         assert_eq!(t.get(12345), Some((-3, FLAG_UPPER)));
+    }
+
+    #[test]
+    fn primes_are_compile_time() {
+        assert_eq!(PRIMES[16 - MIN_LOG as usize], 65_537);
+        for log in MIN_LOG..=MAX_LOG {
+            let p = PRIMES[(log - MIN_LOG) as usize];
+            assert_eq!(p, next_prime(1usize << log));
+            assert!(p >= 1usize << log);
+            assert!(is_prime(p));
+        }
     }
 }
