@@ -4,6 +4,10 @@
 **/*.rs.bk
 *.pdb
 
+# Resumable book generation
+/books/*.checkpoint
+/books/*.checkpoint.tmp
+
 # Node / Vite
 web/node_modules
 web/dist

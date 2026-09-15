@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn shipped_book_matches_every_source_position_and_its_mirror() {
+    fn ten_move_book_matches_every_source_position_and_its_mirror() {
         let score_book = ScoreBook::load(include_bytes!("../../books/10ply.c4book")).unwrap();
         let bytes = include_bytes!("../../books/10ply.c4move");
         let move_book = MoveBook::load(bytes).unwrap();
@@ -146,9 +146,5 @@ mod tests {
             399_029
         );
         assert_eq!(convert_score_to_move(&score_book).unwrap().save(), bytes);
-        assert_eq!(
-            include_bytes!("../../web/public/books/opening.c4move"),
-            bytes
-        );
     }
 }

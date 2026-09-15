@@ -491,6 +491,26 @@ mod tests {
     }
 
     #[test]
+    fn shipped_move_book_covers_twelve_moves() {
+        let bytes = include_bytes!("../../books/12ply.c4move");
+        assert_eq!(
+            include_bytes!("../../web/public/books/opening.c4move"),
+            bytes
+        );
+        let move_book = MoveBook::load(bytes).unwrap();
+        assert_eq!(move_book.moves_covered(), 12);
+        assert_eq!(move_book.populated(), 3_373_595);
+        for seq in ["4444422234", "44444222345"] {
+            let pos = position(seq);
+            for board in [pos, pos.mirrored()] {
+                let col = move_book.get(&board).expect("covered move");
+                assert!(board.can_play(col));
+            }
+        }
+        assert_eq!(move_book.get(&position("444442223451")), None);
+    }
+
+    #[test]
     fn generated_slot_counts_and_payload_match_the_spec() {
         let move_book = MoveBook::empty(10).unwrap();
         assert_eq!(move_book.slots(), 1_393_841);
