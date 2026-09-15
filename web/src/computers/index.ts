@@ -1,64 +1,69 @@
-import type { CompleteColumnScores } from "../engineProtocol.ts";
-import { WIDTH, forcedWinOrBlock, isDraw, lastMoveWin } from "../game.ts";
-import { easyMove } from "./easy.ts";
-import { pickMedium } from "./medium.ts";
-import { pickPerfect } from "./perfect.ts";
+import { easy } from "./easy.ts";
+import { medium } from "./medium.ts";
+import { perfect } from "./perfect.ts";
+import {
+  fallbackColumn,
+  isTerminal,
+  legalEngineColumn,
+  type ComputerPlan,
+  type ComputerPolicy,
+  type SolverMove,
+} from "./shared.ts";
 
-export type ComputerRole = "easy" | "medium" | "perfect";
+export type { ComputerPlan, ComputerPolicy, SolverMove };
+export { mediumMove, pickMedium } from "./medium.ts";
 
-/** Local column, engine request, or `null` when the position is already over. */
-export type ComputerTurnPlan = { type: "local"; col: number } | { type: "engine" };
+export const computers = {
+  easy,
+  medium,
+  perfect,
+} as const satisfies Record<string, ComputerPolicy>;
 
-export { easyMove } from "./easy.ts";
-export { MEDIUM_KEEP_BEST, mediumMove, pickMedium } from "./medium.ts";
-export { pickPerfect } from "./perfect.ts";
+export type ComputerId = keyof typeof computers;
 
-function isTerminal(moves: number[]): boolean {
-  return lastMoveWin(moves) !== null || isDraw(moves);
+export type Seat = { kind: "human" } | { kind: "computer"; computerId: ComputerId };
+
+export function seatFromFormValue(value: string): Seat | null {
+  if (value === "human") return { kind: "human" };
+  if (Object.hasOwn(computers, value)) return { kind: "computer", computerId: value as ComputerId };
+  return null;
 }
 
-function legalEngineColumn(col: number): boolean {
-  return col >= 0 && col < WIDTH;
-}
-
-/**
- * Decide how a computer seat should move. Easy is always local; Medium takes an
- * immediate win or block locally and otherwise asks the engine; Perfect always
- * asks the engine. The caller owns delay, pause, and request invalidation.
- */
-export function planComputerTurn(
-  role: ComputerRole,
+/** Terminal positions have no move to execute; otherwise use the policy's plan. */
+export function planComputer(
+  policy: ComputerPolicy,
   moves: number[],
   random: () => number = Math.random,
-): ComputerTurnPlan | null {
+): ComputerPlan | null {
   if (isTerminal(moves)) return null;
-  if (role === "easy") {
-    const col = easyMove(moves, random);
-    return col === null ? null : { type: "local", col };
-  }
-  if (role === "medium") {
-    const forced = forcedWinOrBlock(moves);
-    if (forced !== null) return { type: "local", col: forced };
-  }
-  return { type: "engine" };
+  return policy.plan(moves, random);
 }
 
 /**
- * Turn an engine reply into the column to play. Medium keeps its score-based
- * and fallback selection; Perfect samples uniformly among `bestCols` when
- * complete scores exist, otherwise keeps the engine column. An out-of-range
- * column falls back to Easy.
+ * Turn a solver reply into a column. Out-of-range results fall back to a
+ * legal tactical/uniform column. Does not treat a solver failure as a move.
  */
-export function chooseAfterEngine(
-  role: ComputerRole,
+export function resolveSolverColumn(
+  choose: (reply: SolverMove) => number | null,
+  reply: SolverMove,
   moves: number[],
-  engineCol: number,
-  moveScores: CompleteColumnScores | null,
   random: () => number = Math.random,
 ): number | null {
-  let col = engineCol;
-  if (role === "medium") col = pickMedium(moves, engineCol, moveScores, random) ?? engineCol;
-  else if (role === "perfect") col = pickPerfect(engineCol, moveScores, random);
-  if (!legalEngineColumn(col)) col = easyMove(moves, random) ?? col;
-  return legalEngineColumn(col) ? col : null;
+  let col = choose(reply);
+  if (col === null || !legalEngineColumn(col)) col = fallbackColumn(moves, random) ?? col;
+  return col !== null && legalEngineColumn(col) ? col : null;
+}
+
+/** Generic executor for local plans or a solver reply. Independent of computer ids. */
+export function executeComputer(
+  policy: ComputerPolicy,
+  moves: number[],
+  random: () => number,
+  reply?: SolverMove,
+): number | null {
+  const plan = planComputer(policy, moves, random);
+  if (plan === null) return null;
+  if (plan.type === "local") return plan.col;
+  if (!reply) return null;
+  return resolveSolverColumn(plan.choose, reply, moves, random);
 }

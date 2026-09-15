@@ -7,7 +7,6 @@ export const INVALID = -1000;
 
 export type { CompleteColumnScores };
 
-export type Role = "human" | "easy" | "medium" | "perfect";
 export type Player = 1 | 2;
 
 export interface Grid {
@@ -131,7 +130,7 @@ export type HintSessionContext = {
   engineReady: boolean;
   gameOver: boolean;
   paused: boolean;
-  role: Role;
+  computerToMove: boolean;
   hasAnalysis: boolean;
 };
 
@@ -151,14 +150,14 @@ export type HintComputerPlan = {
 };
 
 export function isActiveComputerTurn(
-  ctx: Pick<HintSessionContext, "gameOver" | "paused" | "role">,
+  ctx: Pick<HintSessionContext, "gameOver" | "paused" | "computerToMove">,
 ): boolean {
-  return !ctx.gameOver && !ctx.paused && ctx.role !== "human";
+  return !ctx.gameOver && !ctx.paused && ctx.computerToMove;
 }
 
 /** Full-column analysis is for human turns and paused positions, not active computers. */
 export function shouldRequestAnalysis(ctx: HintSessionContext): boolean {
-  return ctx.hintsOn && ctx.engineReady && !ctx.gameOver && (ctx.paused || ctx.role === "human");
+  return ctx.hintsOn && ctx.engineReady && !ctx.gameOver && (ctx.paused || !ctx.computerToMove);
 }
 
 export function shouldRequestAvailableScores(ctx: HintSessionContext): boolean {

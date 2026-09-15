@@ -11,6 +11,7 @@ import {
   type Grid,
   type Player,
 } from "../game.ts";
+import type { SolverMove } from "./shared.ts";
 
 /** Probability Medium keeps the engine/book column when scores are unavailable. */
 export const MEDIUM_KEEP_BEST = 0.82;
@@ -72,3 +73,15 @@ export function pickMedium(
   const pickFrom = rest.length > 0 ? rest : pool;
   return pickFrom[Math.floor(random() * pickFrom.length)] ?? engineCol;
 }
+
+export const medium = {
+  label: "Medium",
+  plan(moves: number[], random: () => number) {
+    const forced = forcedWinOrBlock(moves);
+    if (forced !== null) return { type: "local" as const, col: forced };
+    return {
+      type: "solver" as const,
+      choose: (reply: SolverMove) => pickMedium(moves, reply.col, reply.moveScores, random) ?? reply.col,
+    };
+  },
+};

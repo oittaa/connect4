@@ -1,5 +1,6 @@
 import type { CompleteColumnScores } from "../engineProtocol.ts";
 import { bestCols } from "../game.ts";
+import type { SolverMove } from "./shared.ts";
 
 /** Sample uniformly among complete best-column scores; otherwise keep the engine column. */
 export function pickPerfect(
@@ -13,3 +14,13 @@ export function pickPerfect(
   }
   return engineCol;
 }
+
+export const perfect = {
+  label: "Perfect",
+  plan(_moves: number[], random: () => number) {
+    return {
+      type: "solver" as const,
+      choose: (reply: SolverMove) => pickPerfect(reply.col, reply.moveScores, random),
+    };
+  },
+};
