@@ -28,6 +28,10 @@ pub struct Table {
     keys: Box<[u32]>,
     vals: Box<[u8]>,
     size: usize,
+    /// Set on `put`, cleared on `load` or by the caller after persisting a
+    /// `save` snapshot (`clear_dirty`), so callers can skip re-persisting an
+    /// unmodified table.
+    dirty: bool,
 }
 
 /// Solver clamps `--tt-bits` to 16..=27. `Table::new` also allows 12 for tests.
@@ -53,7 +57,24 @@ impl Table {
         let mut vals = vec![0u8; size].into_boxed_slice();
         advise_huge_pages(&mut keys);
         advise_huge_pages(&mut vals);
-        Self { keys, vals, size }
+        Self {
+            keys,
+            vals,
+            size,
+            dirty: false,
+        }
+    }
+
+    /// Whether `put` has stored anything since construction, the last
+    /// `load`, or the last `clear_dirty`.
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Mark the table clean, typically after the caller persists a `save`
+    /// snapshot successfully.
+    pub fn clear_dirty(&mut self) {
+        self.dirty = false;
     }
 
     #[inline]
@@ -85,6 +106,7 @@ impl Table {
             *self.keys.get_unchecked_mut(i) = key as u32;
             *self.vals.get_unchecked_mut(i) = packed;
         }
+        self.dirty = true;
     }
 
     /// Serialize as `magic(4) + version(1) + reserved(3) + slot count(u64) +
@@ -133,6 +155,7 @@ impl Table {
         }
         self.vals
             .copy_from_slice(&bytes[SNAPSHOT_HEADER + keys_len..]);
+        self.dirty = false;
         Ok(())
     }
 }
@@ -257,6 +280,31 @@ mod tests {
 
         let truncated = &blob[..blob.len() - 1];
         assert!(t.load(truncated).is_err());
+    }
+
+    #[test]
+    fn dirty_tracks_put_and_clears_on_load_or_explicit_clear() {
+        let mut t = Table::new(12);
+        assert!(!t.is_dirty(), "fresh table starts clean");
+        t.put(1, 0, FLAG_EMPTY);
+        assert!(!t.is_dirty(), "a no-op put (packed == 0) does not dirty");
+        t.put(1, 4, FLAG_LOWER);
+        assert!(t.is_dirty());
+
+        t.clear_dirty();
+        assert!(!t.is_dirty());
+        t.put(2, -1, FLAG_UPPER);
+        assert!(t.is_dirty());
+
+        let blob = t.save();
+        let mut t2 = Table::new(12);
+        t2.put(3, 1, FLAG_LOWER);
+        assert!(t2.is_dirty());
+        t2.load(&blob).unwrap();
+        assert!(
+            !t2.is_dirty(),
+            "a successful load starts clean at that snapshot"
+        );
     }
 
     #[test]

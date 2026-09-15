@@ -32,6 +32,10 @@ pub struct Solver {
     #[cfg(not(target_arch = "wasm32"))]
     tt_log: u32,
     move_book_hit: bool,
+    /// Column scores from the most recent `best_move`/`select_move` call.
+    /// `INVALID_MOVE` for columns that search did not need to visit. Not
+    /// persisted or reused across positions; read it right after that call.
+    last_move_scores: [i32; WIDTH],
     #[cfg(not(target_arch = "wasm32"))]
     start: Option<Instant>,
     #[cfg(target_arch = "wasm32")]
@@ -63,6 +67,7 @@ impl Solver {
             #[cfg(not(target_arch = "wasm32"))]
             tt_log: log_size,
             move_book_hit: false,
+            last_move_scores: [INVALID_MOVE; WIDTH],
             #[cfg(not(target_arch = "wasm32"))]
             start: None,
             #[cfg(target_arch = "wasm32")]
@@ -75,6 +80,7 @@ impl Solver {
         self.timed_out = false;
         self.check_counter = 0;
         self.move_book_hit = false;
+        self.last_move_scores = [INVALID_MOVE; WIDTH];
     }
 
     pub fn node_count(&self) -> u64 {
@@ -87,6 +93,14 @@ impl Solver {
 
     pub fn move_book_hit(&self) -> bool {
         self.move_book_hit
+    }
+
+    /// Column scores discovered by the most recent `best_move`/`select_move`
+    /// call. Exact where `best_move` needed to prove them, `INVALID_MOVE`
+    /// elsewhere; a move-book hit leaves this all-`INVALID_MOVE` since it
+    /// does not search. Valid only until the next call that resets stats.
+    pub fn last_move_scores(&self) -> [i32; WIDTH] {
+        self.last_move_scores
     }
 
     pub fn set_timeout_ms(&mut self, ms: u32) {
@@ -392,6 +406,7 @@ impl Solver {
             }
         }
         let col = best_col?;
+        self.last_move_scores = scores;
         let result = SolveResult {
             score: target,
             nodes: self.nodes,
@@ -402,8 +417,9 @@ impl Solver {
         Some((col, result, scores))
     }
 
-    /// Select a move for gameplay. A move-book hit performs no score search and
-    /// does not add an entry to the transposition table.
+    /// Select a move for gameplay. A move-book hit performs no score search,
+    /// does not add an entry to the transposition table, and leaves
+    /// `last_move_scores` unset. Otherwise behaves like `best_move`.
     pub fn select_move(&mut self, pos: Position) -> Option<usize> {
         self.reset_nodes();
         self.begin_clock();
@@ -1039,6 +1055,24 @@ mod tests {
         assert_eq!(solver.node_count(), 0);
         assert!(!solver.timed_out());
         assert!(solver.move_book_hit());
+        assert_eq!(
+            solver.last_move_scores(),
+            [INVALID_MOVE; WIDTH],
+            "a move-book hit does not search"
+        );
+    }
+
+    #[test]
+    fn select_move_forwards_the_search_scores_it_finds() {
+        let mut solver = Solver::with_tt_log(20);
+        let mut pos = Position::new();
+        pos.play_seq("4455");
+        assert_eq!(solver.select_move(pos), Some(2));
+        assert!(!solver.move_book_hit());
+        let scores = solver.last_move_scores();
+        assert_eq!(scores[2], 18, "the chosen column's score is not discarded");
+        assert_eq!(scores[3], INVALID_MOVE);
+        assert_eq!(scores[4], INVALID_MOVE);
     }
 
     #[test]
@@ -1134,10 +1168,15 @@ mod tests {
         pos.play_seq("4455");
         assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
         solver.max_nodes = 100;
-        let (_col, result, _) = solver.best_move(pos).unwrap();
+        let (col, result, scores) = solver.best_move(pos).unwrap();
         assert!(!result.timed_out);
-        // best_move's threshold proof is not cached; only the score book
-        // populates known_column_scores.
+        // The just-completed search's own proof is available via
+        // last_move_scores, not through known_column_scores (which is a
+        // stateless score-book/immediate-win read, unrelated to any search).
+        assert_eq!(scores[col], 18);
+        assert_eq!(scores[3], INVALID_MOVE);
+        assert_eq!(scores[4], INVALID_MOVE);
+        assert_eq!(solver.last_move_scores(), scores);
         assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
         assert_eq!(solver.node_count(), result.nodes);
         assert!(solver.column_scores_from_score_book(&pos).is_none());
@@ -1149,6 +1188,7 @@ mod tests {
         interrupted.best_move(pos).unwrap();
         assert!(interrupted.timed_out());
         assert_eq!(interrupted.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
+        assert_eq!(interrupted.last_move_scores(), [INVALID_MOVE; WIDTH]);
         assert_eq!(interrupted.node_count(), 1);
         assert!(interrupted.timed_out());
     }

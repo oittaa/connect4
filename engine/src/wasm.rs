@@ -128,10 +128,35 @@ impl WasmEngine {
 
     /// Restore the transposition table from a snapshot produced by `ttSave`.
     /// Rejects a blob whose size or version does not match this table, so a
-    /// native-sized or truncated blob cannot corrupt it.
+    /// native-sized or truncated blob cannot corrupt it. Clears `ttDirty`.
     #[wasm_bindgen(js_name = ttLoad)]
     pub fn tt_load(&mut self, data: &[u8]) -> bool {
         self.solver.tt_mut().load(data).is_ok()
+    }
+
+    /// Whether the table changed since construction, the last `ttLoad`, or
+    /// the last `ttMarkClean`. Lets the caller skip persisting an unchanged
+    /// ~20 MiB snapshot.
+    #[wasm_bindgen(js_name = ttDirty)]
+    pub fn tt_dirty(&self) -> bool {
+        self.solver.tt().is_dirty()
+    }
+
+    /// Call after successfully persisting a `ttSave` snapshot.
+    #[wasm_bindgen(js_name = ttMarkClean)]
+    pub fn tt_mark_clean(&mut self) {
+        self.solver.tt_mut().clear_dirty();
+    }
+
+    /// Column scores from the most recent `bestMove` call: exact where the
+    /// search needed to prove them, `INVALID_MOVE` elsewhere. Does not search.
+    #[wasm_bindgen(js_name = lastMoveScores)]
+    pub fn last_move_scores(&self) -> Vec<i16> {
+        self.solver
+            .last_move_scores()
+            .iter()
+            .map(|&s| s as i16)
+            .collect()
     }
 
     pub fn solve(&mut self, moves: &[u8]) -> i8 {
