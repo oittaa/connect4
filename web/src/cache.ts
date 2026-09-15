@@ -81,14 +81,18 @@ export async function loadTT(): Promise<Uint8Array | undefined> {
   }
 }
 
-/** Persist a TT snapshot. Swallows quota/transaction failures; the caller logs. */
+/**
+ * Persist a TT snapshot. Swallows quota/transaction failures; the caller logs.
+ * Takes ownership of `data` without copying it — `put`'s structured clone
+ * does its own copy, and the caller (a freshly returned `ttSave()` buffer)
+ * does not reuse it afterward.
+ */
 export async function saveTT(data: Uint8Array): Promise<void> {
   const db = await openDb();
   if (!db) return;
-  const copy = data.slice();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(copy, RECORD);
+    tx.objectStore(STORE).put(data, RECORD);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

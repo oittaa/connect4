@@ -3,7 +3,7 @@
 
 import { loadTT, saveTT } from "./cache";
 import type { WorkerReq, WorkerRes } from "./engineProtocol";
-import { completeMoveScores } from "./game";
+import { completeMoveScores, INVALID } from "./game";
 import type { WasmEngine } from "./pkg/engine.js";
 
 let engine: WasmEngine | null = null;
@@ -29,13 +29,24 @@ async function restoreTT(eng: WasmEngine): Promise<void> {
   }
 }
 
-/** Called once per finished game, not after every search. */
+/** Called once per finished game, not after every search. Skips the write
+ * entirely if no search has changed the table since the last save/load. */
 async function persistTT(eng: WasmEngine): Promise<void> {
+  if (!eng.ttDirty()) return;
   try {
-    await saveTT(new Uint8Array(eng.ttSave()));
+    await saveTT(eng.ttSave());
+    eng.ttMarkClean();
   } catch (e) {
     console.error("TT save failed", e);
   }
+}
+
+/** Column scores from the just-completed bestMove search, filled in with
+ * known/immediate-win columns it did not need to visit. Neither call searches. */
+function bestMoveHintScores(eng: WasmEngine, moves: Uint8Array): number[] {
+  const known = Array.from(eng.knownColumnScores(moves));
+  const last = eng.lastMoveScores();
+  return known.map((k, i) => (last[i] !== INVALID ? last[i] : k));
 }
 
 function ready(id: number, eng: WasmEngine): WorkerRes {
@@ -111,7 +122,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           type: "moved",
           col,
           moveScores: completeMoveScores(engine.scoreBookColumnScores(moves), msg.moves),
-          hintScores: Array.from(engine.knownColumnScores(moves)),
+          hintScores: bestMoveHintScores(engine, moves),
           nodes,
           micros,
           timedOut: engine.timedOut(),
