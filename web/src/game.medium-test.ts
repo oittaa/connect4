@@ -1,13 +1,6 @@
 // Deterministic Medium and computer-turn policy checks. Run: npm test
 
-import {
-  computers,
-  mediumMove,
-  pickMedium,
-  planComputer,
-  resolveSolverColumn,
-  type ComputerId,
-} from "./computers/index.ts";
+import { computers, planComputer, resolveSolverColumn, type ComputerId } from "./computers/index.ts";
 import {
   INVALID,
   analysisComplete,
@@ -55,40 +48,19 @@ function afterEngine(
 }
 
 const emptyScores: CompleteColumnScores = [-2, -1, 0, 1, 0, -1, -2];
-assert(mediumMove(emptyScores, seq([0.99, 0])) === 3, "keep unique best");
-assert(mediumMove(emptyScores, seq([0, 0])) === 2, "second-best first tie (column 3)");
-assert(mediumMove(emptyScores, seq([0, 0.99])) === 4, "second-best last tie (column 5)");
-assert(mediumMove([], () => 0) === null, "no scores");
-
 const tiedBest: CompleteColumnScores = [0, 1, 1, 0, -1, -2, -2];
-assert(mediumMove(tiedBest, seq([0.99, 0])) === 1, "best-tier first tie");
-assert(mediumMove(tiedBest, seq([0.99, 0.99])) === 2, "best-tier last tie");
+const oneScored: CompleteColumnScores = [INVALID, INVALID, INVALID, 1, INVALID, INVALID, INVALID];
 
 const winSeq = [0, 1, 0, 2, 0, 3];
 assert(forcedWinOrBlock(winSeq) === 0, "forced win");
-assert(pickMedium(winSeq, 6, null, () => 0) === 0, "take the mate");
 
 const blockSeq = [1, 0, 2, 0, 6, 0];
 assert(forcedWinOrBlock(blockSeq) === 0, "forced block");
 assert(forcedWinOrBlock([]) === null, "empty board is not forced");
 
-assert(pickMedium([], 3, emptyScores, seq([0.99, 0])) === 3, "score-book best");
-assert(pickMedium([], 3, emptyScores, seq([0, 0])) === 2, "score-book second first tie");
-assert(pickMedium([], 3, emptyScores, seq([0, 0.99])) === 4, "score-book second last tie");
-
-const leak = pickMedium([0, 1], 3, null, () => 0.5);
-assert(leak === 3, `keep engine column, got ${leak}`);
-const leaked = pickMedium([0, 1], 3, null, () => 0.9);
-assert(leaked !== null && leaked !== 3, `leak away from engine, got ${leaked}`);
-assert(
-  mediumMove([INVALID, INVALID, INVALID, 1, INVALID, INVALID, INVALID], () => 0) === 3,
-  "one scored column",
-);
-
 // Playing column 3 fills the support for Yellow's row-1 three-in-a-row.
 const hangSeq = [0, 0, 6, 1, 2, 1, 6, 2];
 assert(forcedWinOrBlock(hangSeq) === null, "hang is not an immediate threat");
-assert(pickMedium(hangSeq, 3, null, () => 0.5) !== 3, "fallback avoids hanging a win");
 
 const winSeqPlayed = [...winSeq, 0];
 assert(lastMoveWin(winSeqPlayed) !== null, "mate is terminal");
@@ -96,7 +68,8 @@ assert(planOf("easy", winSeqPlayed, () => 0) === null, "Easy skips a finished ga
 assert(planOf("medium", winSeqPlayed, () => 0) === null, "Medium skips a finished game");
 assert(planOf("perfect", winSeqPlayed, () => 0) === null, "Perfect skips a finished game");
 
-same(planOf("easy", [], seq([0])), { type: "local", col: 3 }, "Easy is always local");
+same(planOf("easy", [], () => 0), { type: "local", col: 0 }, "Easy picks the first legal column");
+same(planOf("easy", [], () => 0.99), { type: "local", col: 6 }, "Easy picks the last legal column");
 same(planOf("easy", winSeq, () => 0), { type: "local", col: 0 }, "Easy forced mate is local");
 same(planOf("easy", blockSeq, () => 0), { type: "local", col: 0 }, "Easy forced block is local");
 same(planOf("medium", winSeq, () => 0), { type: "local", col: 0 }, "Medium mate is local");
@@ -106,37 +79,30 @@ same(planOf("medium", hangSeq, () => 0), { type: "solver" }, "Medium hang is not
 same(planOf("perfect", [], () => 0), { type: "solver" }, "Perfect asks the engine");
 same(planOf("perfect", winSeq, () => 0), { type: "solver" }, "Perfect does not take a local mate");
 
+assert(afterEngine("medium", [], 2, emptyScores, seq([0.99, 0])) === 3, "Medium unique best ignores the engine column");
+assert(afterEngine("medium", [], 3, emptyScores, seq([0, 0])) === 2, "Medium 28% second-best first tie");
+assert(afterEngine("medium", [], 3, emptyScores, seq([0, 0.99])) === 4, "Medium 28% second-best last tie");
+assert(afterEngine("medium", [], 0, tiedBest, seq([0.99, 0])) === 1, "Medium best-tier first tie");
+assert(afterEngine("medium", [], 0, tiedBest, seq([0.99, 0.99])) === 2, "Medium best-tier last tie");
+assert(afterEngine("medium", [], 0, oneScored, () => 0) === 3, "Medium one scored column");
+assert(afterEngine("medium", hangSeq, 3, null, () => 0.5) !== 3, "Medium fallback avoids hanging a win");
+assert(afterEngine("medium", [0, 1], 3, null, () => 0.5) === 3, "Medium keeps the engine column");
+const leaked = afterEngine("medium", [0, 1], 3, null, () => 0.9);
+assert(leaked !== null && leaked !== 3, `Medium can leak away from the engine column, got ${leaked}`);
+
 assert(afterEngine("perfect", [], 3, emptyScores, () => 0) === 3, "Perfect unique best is the engine column");
 assert(afterEngine("perfect", [], 2, emptyScores, seq([0.99, 0])) === 3, "Perfect unique best ignores the engine column");
 assert(
   afterEngine("perfect", [], 2, emptyScores, seq([0, 0])) === 3,
   "Perfect unique best does not leak to second-best",
 );
-assert(afterEngine("medium", [], 2, emptyScores, seq([0.99, 0])) === 3, "Medium can ignore the engine column");
 assert(afterEngine("perfect", [], 3, null, () => 0) === 3, "Perfect ignores missing scores");
-assert(afterEngine("perfect", [], 255, null, seq([0])) === 3, "invalid Perfect column falls back to Easy");
+assert(afterEngine("perfect", [], 255, null, () => 0) === 0, "invalid Perfect column falls back to a legal Easy pick");
 assert(afterEngine("perfect", [], 0, tiedBest, seq([0])) === 1, "Perfect first best-tier tie");
 assert(afterEngine("perfect", [], 0, tiedBest, seq([0.99])) === 2, "Perfect last best-tier tie");
 const allTie: CompleteColumnScores = [-1, -1, -1, -1, -1, -1, -1];
 assert(afterEngine("perfect", [], 0, allTie, () => 0) === 0, "Perfect all-tie first column");
 assert(afterEngine("perfect", [], 0, allTie, () => 0.99) === 6, "Perfect all-tie last column");
-assert(
-  afterEngine("medium", [], 3, emptyScores, seq([0.99, 0])) === 3,
-  "Medium score-book best after engine",
-);
-assert(
-  afterEngine("medium", [], 3, emptyScores, seq([0, 0])) === 2,
-  "Medium second-best first tie after engine",
-);
-assert(
-  afterEngine("medium", hangSeq, 3, null, () => 0.5) !== 3,
-  "Medium fallback still avoids hanging a win",
-);
-assert(afterEngine("medium", winSeq, 6, null, () => 0) === 0, "chooser still takes the mate");
-assert(
-  afterEngine("medium", [0, 1], 3, null, () => 0.5) === 3,
-  "null moveScores uses the engine-column fallback",
-);
 
 // Full board from testdata/end_easy (41 ply, one safe drop left).
 const draw = "71255763773133525731261364622167124446454".split("").map((ch) => Number(ch) - 1);

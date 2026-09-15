@@ -66,7 +66,7 @@ assert(
   "solver test policy uses the reply column",
 );
 assert(
-  play(fromReply, [], () => 0, { col: 255, moveScores: null }) === 3,
+  play(fromReply, [], () => 0, { col: 255, moveScores: null }) === 0,
   "invalid solver column uses the shared fallback",
 );
 assert(play(fromReply, [], () => 0) === null, "solver policy without a reply does not invent a move");
