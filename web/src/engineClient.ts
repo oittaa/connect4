@@ -1,9 +1,8 @@
 import type { WorkerReq, WorkerRes } from "./engineProtocol";
 
 type OmitId<T> = T extends unknown ? Omit<T, "id"> : never;
-type ReplyReq = Exclude<WorkerReq, { type: "setTimeout" }>;
 
-export type EngineRequest = OmitId<ReplyReq>;
+export type EngineRequest = OmitId<WorkerReq>;
 
 /** Settled into pending requests on `error` / `messageerror`. */
 export const SOLVER_TRANSPORT_ERROR = "The solver stopped unexpectedly.";
@@ -24,14 +23,13 @@ export type EnginePort = {
 
 export type EngineClient = {
   request(msg: EngineRequest): Promise<WorkerRes>;
-  setTimeoutMs(ms: number): void;
   /** Stop posting. Pending and future requests resolve as errors. Does not notify `onFailure`. */
   fail(message?: string): void;
   hasPendingCompute(): boolean;
 };
 
-export function isBlockingCompute(type: EngineRequest["type"] | WorkerReq["type"]): boolean {
-  return type === "analyze" || type === "bestMove" || type === "solve";
+export function isBlockingCompute(type: EngineRequest["type"]): boolean {
+  return type === "analyze" || type === "bestMove";
 }
 
 export function createEngineClient(
@@ -39,7 +37,7 @@ export function createEngineClient(
   options?: { onFailure?: (detail: string) => void },
 ): EngineClient {
   let reqId = 1;
-  const pending = new Map<number, { resolve: (r: WorkerRes) => void; type: EngineRequest["type"] | "setTimeout" }>();
+  const pending = new Map<number, { resolve: (r: WorkerRes) => void; type: EngineRequest["type"] }>();
   let failed: string | null = null;
   const sink = port as EnginePort;
 
@@ -89,15 +87,6 @@ export function createEngineClient(
           });
         }
       });
-    },
-    setTimeoutMs(ms) {
-      if (failed) return;
-      const id = reqId++;
-      try {
-        sink.postMessage({ id, type: "setTimeout", ms });
-      } catch {
-        // One-way command: nothing is waiting on a reply.
-      }
     },
     fail(message = SOLVER_TRANSPORT_ERROR) {
       failAll(message, false);

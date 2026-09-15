@@ -102,6 +102,5 @@ export function createWorkerReplace(host: WorkerReplaceHost) {
   return {
     send,
     client: () => current.client,
-    isReplacing: () => replacing !== null,
   };
 }

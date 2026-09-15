@@ -30,15 +30,6 @@ export function shouldStartBookDownload(kind: "score" | "move", state: BooksDown
 }
 
 /**
- * After replacement, resume a fetch only for a missing book that has not already
- * been attempted this On period. In-flight fetches keep running; a timeout does
- * not start an automatic retry.
- */
-export function shouldDownloadBooks(state: BooksDownloadState): boolean {
-  return shouldStartBookDownload("score", state) || shouldStartBookDownload("move", state);
-}
-
-/**
  * Load retained opening-book bytes into a replacement worker, or clear them
  * if the toggle is off. Re-checks the latest preference after every await so
  * Off/On during a pending restore is not left on the worker.

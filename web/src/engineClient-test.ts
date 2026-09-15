@@ -63,18 +63,18 @@ function ready(id: number): WorkerRes {
   const port = stub();
   const client = createEngineClient(port);
   const scoreP = client.request({
-    type: "fetchScoreBook",
-    url: "books/opening.c4book",
+    type: "loadScoreBook",
+    bytes: new ArrayBuffer(0),
   });
   const moveP = client.request({
-    type: "fetchMoveBook",
-    url: "books/opening.c4move",
+    type: "loadMoveBook",
+    bytes: new ArrayBuffer(0),
   });
   same(
     port.posted.map((m) => [m.id, m.type]),
     [
-      [1, "fetchScoreBook"],
-      [2, "fetchMoveBook"],
+      [1, "loadScoreBook"],
+      [2, "loadMoveBook"],
     ],
     "both book requests stay pending",
   );
@@ -112,40 +112,25 @@ function ready(id: number): WorkerRes {
 
 {
   const port = stub();
-  const client = createEngineClient(port);
-  client.setTimeoutMs(50);
-  same(port.posted[0], { id: 1, type: "setTimeout", ms: 50 }, "one-way setTimeout has an id");
-  port.deliver({ id: 1, type: "error", message: "should ignore" });
-  const p = client.request({ type: "init", timeoutMs: 12 });
-  assert(port.posted[1].id === 2, "one-way command does not consume a pending slot");
-  port.deliver(ready(2));
-  const r = await p;
-  assert(r.type === "ready" && r.id === 2, "later request still matches");
-}
-
-{
-  const port = stub();
   const failures: string[] = [];
   const client = createEngineClient(port, { onFailure: (d) => failures.push(d) });
   const initP = client.request({ type: "init", timeoutMs: 0 });
   const analyzeP = client.request({ type: "analyze", moves: [] });
   const scoreBookP = client.request({
-    type: "fetchScoreBook",
-    url: "books/opening.c4book",
+    type: "loadScoreBook",
+    bytes: new ArrayBuffer(0),
   });
   port.onerror?.({ message: "import failed" });
   port.onerror?.({ message: "second" });
   const [init, analyze, scoreBook] = await Promise.all([initP, analyzeP, scoreBookP]);
   same(init, { id: 1, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles init");
   same(analyze, { id: 2, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles analyze");
-  same(scoreBook, { id: 3, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles score-book fetch");
+  same(scoreBook, { id: 3, type: "error", message: SOLVER_TRANSPORT_ERROR }, "error event settles score-book load");
   same(failures, ["import failed"], "onFailure runs once with the event detail");
   const posted = port.posted.length;
   const later = await client.request({ type: "bestMove", moves: [] });
   same(later, { id: 4, type: "error", message: SOLVER_TRANSPORT_ERROR }, "later request fails promptly");
   assert(port.posted.length === posted, "failed worker does not post again");
-  client.setTimeoutMs(1);
-  assert(port.posted.length === posted, "one-way setTimeout is skipped after failure");
 }
 
 {
@@ -169,7 +154,6 @@ function ready(id: number): WorkerRes {
     timedOut: false,
     fromCache: false,
     fromMoveBook: false,
-    key: "",
   });
   const late = await client.request({ type: "analyze", moves: [] });
   assert(late.type === "error", "late moved after messageerror does not revive the client");
@@ -212,9 +196,8 @@ assert(!isWorkerReplaced({ id: 1, type: "error", message: SOLVER_TRANSPORT_ERROR
 
 assert(isBlockingCompute("analyze"), "analyze blocks the worker");
 assert(isBlockingCompute("bestMove"), "bestMove blocks the worker");
-assert(isBlockingCompute("solve"), "solve blocks the worker");
 assert(!isBlockingCompute("init"), "init is not a blocking search");
-assert(!isBlockingCompute("fetchScoreBook"), "score-book download is not a blocking search");
+assert(!isBlockingCompute("loadScoreBook"), "score-book load is not a blocking search");
 
 {
   const port = stub();
@@ -230,10 +213,10 @@ assert(!isBlockingCompute("fetchScoreBook"), "score-book download is not a block
   const port = stub();
   const client = createEngineClient(port);
   const scoreBookP = client.request({
-    type: "fetchScoreBook",
-    url: "books/opening.c4book",
+    type: "loadScoreBook",
+    bytes: new ArrayBuffer(0),
   });
-  assert(!client.hasPendingCompute(), "book fetch is not pending compute");
+  assert(!client.hasPendingCompute(), "book load is not pending compute");
   const analyzeP = client.request({ type: "analyze", moves: [] });
   assert(client.hasPendingCompute(), "analyze behind a book fetch is still pending compute");
   client.fail(WORKER_REPLACED);
