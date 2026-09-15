@@ -19,9 +19,9 @@ c4solver — perfect Connect 4
 Usage:
   c4solver solve [MOVES]          score a position (1-based column digits)
   c4solver analyze [MOVES]        score each legal column
-  c4solver bench [--score-book FILE] [--limit N] [--no-mirror] FILE
+  c4solver bench [--score-book FILE] [--limit N] FILE
                                   run a Pons-style test file (seq score)
-  c4solver empty [--score-book FILE] [--no-mirror]
+  c4solver empty [--score-book FILE]
   c4solver gen-score-book --moves N --out FILE [--from-score-book FILE] [--tt-bits N] [--threads N]
   c4solver convert-score-to-move --score-book FILE --out FILE
   c4solver gen-move-book --moves N --out FILE [--score-book FILE] [--from-move-book FILE]
@@ -38,7 +38,6 @@ Conversion preserves that coverage; validation needs a score book covering
 at least as many moves as the move book.
 
 MOVES is a string of digits 1-7, e.g. 444526. Empty string = empty board.
---no-mirror disables left-right TT canonicalization.
 --tt-bits N  transposition table size 2^N (default 24). 25–26 can help on
              CPUs with a large L3 (e.g. Ryzen X3D).
 "
@@ -77,12 +76,7 @@ fn thread_count(args: &[String]) -> usize {
 fn make_solver(args: &[String]) -> Solver {
     let bits = tt_bits(args);
     eprintln!("TT 2^{bits}");
-    let mut solver = Solver::with_tt_log(bits);
-    if args.iter().any(|a| a == "--no-mirror") {
-        solver.set_mirror(false);
-        eprintln!("mirroring off");
-    }
-    solver
+    Solver::with_tt_log(bits)
 }
 
 fn positional_seq(args: &[String]) -> &str {
@@ -90,9 +84,6 @@ fn positional_seq(args: &[String]) -> &str {
     for a in args.iter().skip(1) {
         if skip_val {
             skip_val = false;
-            continue;
-        }
-        if a == "--no-mirror" {
             continue;
         }
         if a == "--tt-bits"
