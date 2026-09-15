@@ -2,7 +2,6 @@
 
 use crate::move_book::MoveBook;
 use crate::position::{column_mask, Position, AREA, WIDTH};
-use crate::proven::{best_of, orient_cols, pack_cols, ProvenTable};
 use crate::score_book::ScoreBook;
 use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
 
@@ -25,7 +24,6 @@ pub struct Solver {
     tt: Table,
     score_book: ScoreBook,
     move_book: Option<MoveBook>,
-    proven: ProvenTable,
     nodes: u64,
     timed_out: bool,
     check_counter: u32,
@@ -57,7 +55,6 @@ impl Solver {
             tt: Table::new(log_size),
             score_book: ScoreBook::opening_4ply(),
             move_book: None,
-            proven: ProvenTable::new(),
             nodes: 0,
             timed_out: false,
             check_counter: 0,
@@ -163,8 +160,8 @@ impl Solver {
         playable.then_some(scores)
     }
 
-    /// Scores already known from the score book, proven child positions, or immediate
-    /// wins/losses. Unknown columns stay invalid; this never searches.
+    /// Scores already known from the score book or immediate wins/losses.
+    /// Unknown columns stay invalid; this never searches.
     pub fn known_column_scores(&self, pos: &Position) -> [i32; WIDTH] {
         let mut scores = [INVALID_MOVE; WIDTH];
         if pos.last_player_won() || pos.is_draw() {
@@ -180,7 +177,7 @@ impl Solver {
             }
             let mut child = *pos;
             child.play_col(col);
-            if let Some(s) = self.exact_score(&child) {
+            if let Some(s) = self.score_book_score(&child) {
                 *score = -s;
             } else if child.can_win_next() {
                 *score = -((AREA as i32 + 1 - child.moves() as i32) / 2);
@@ -189,35 +186,18 @@ impl Solver {
         scores
     }
 
-    pub fn proven(&self) -> &ProvenTable {
-        &self.proven
+    /// Read-only access to the transposition table, for WASM snapshot export.
+    pub fn tt(&self) -> &Table {
+        &self.tt
     }
 
-    pub fn load_proven(&mut self, bytes: &[u8]) -> Result<(), String> {
-        self.proven = ProvenTable::load(bytes)?;
-        Ok(())
-    }
-
-    pub fn merge_proven(&mut self, bytes: &[u8]) -> Result<(), String> {
-        self.proven.merge(&ProvenTable::load(bytes)?);
-        Ok(())
+    /// Mutable access to the transposition table, for WASM snapshot restore.
+    pub fn tt_mut(&mut self) -> &mut Table {
+        &mut self.tt
     }
 
     fn score_book_score(&self, pos: &Position) -> Option<i32> {
         self.score_book.get(pos)
-    }
-
-    fn proven_score(&self, pos: &Position) -> Option<i32> {
-        if self.proven.is_empty() {
-            None
-        } else {
-            self.proven.get(pos.canonical_key())
-        }
-    }
-
-    fn exact_score(&self, pos: &Position) -> Option<i32> {
-        self.score_book_score(pos)
-            .or_else(|| self.proven_score(pos))
     }
 
     fn begin_clock(&mut self) {
@@ -295,9 +275,6 @@ impl Solver {
         if let Some(s) = self.score_book_score(&pos) {
             return (s, true);
         }
-        if let Some(s) = self.proven_score(&pos) {
-            return (s, false);
-        }
 
         if pos.can_win_next() {
             return ((AREA as i32 + 1 - pos.moves() as i32) / 2, false);
@@ -323,9 +300,6 @@ impl Solver {
                 min = r;
             }
         }
-        if !self.timed_out {
-            self.proven.insert_score(pos.canonical_key(), min as i8);
-        }
         (min, false)
     }
 
@@ -335,14 +309,7 @@ impl Solver {
         // Score columns directly (centre first). Solving the parent first is a
         // TT warmup, but on an empty board it burns the time budget and we
         // return a single unfinished edge column as if it were best.
-        let scores = self.score_columns(pos);
-        if !self.timed_out {
-            if let Some(s) = best_of(&scores) {
-                let cols = orient_cols(pack_cols(&scores), pos.is_mirrored());
-                self.proven.insert(pos.canonical_key(), s as i8, Some(cols));
-            }
-        }
-        scores
+        self.score_columns(pos)
     }
 
     fn score_columns(&mut self, pos: Position) -> [i32; WIDTH] {
@@ -398,7 +365,7 @@ impl Solver {
             }
             let mut child = pos;
             child.play_col(col);
-            let (s, exact) = if let Some(s) = self.exact_score(&child) {
+            let (s, exact) = if let Some(s) = self.score_book_score(&child) {
                 (s, true)
             } else if child.can_win_next() {
                 // negamax requires that the side to move cannot win in one.
@@ -420,10 +387,6 @@ impl Solver {
             }
             if s <= -target {
                 scores[col] = target;
-                if !exact {
-                    self.proven
-                        .insert_score(child.canonical_key(), (-target) as i8);
-                }
                 best_col = Some(col);
                 break;
             }
@@ -440,7 +403,7 @@ impl Solver {
     }
 
     /// Select a move for gameplay. A move-book hit performs no score search and
-    /// does not add an entry to either the transposition or proven tables.
+    /// does not add an entry to the transposition table.
     pub fn select_move(&mut self, pos: Position) -> Option<usize> {
         self.reset_nodes();
         self.begin_clock();
@@ -493,7 +456,7 @@ impl Solver {
             }
         }
 
-        if let Some(s) = self.exact_score(&pos) {
+        if let Some(s) = self.score_book_score(&pos) {
             return s;
         }
 
@@ -795,15 +758,6 @@ mod tests {
         assert_eq!(scores[2], 18);
         assert_eq!(scores[3], INVALID_MOVE);
         assert_eq!(scores[4], INVALID_MOVE);
-
-        let mut chosen = pos;
-        chosen.play_col(col);
-        // The completed proof remains usable after later searches.
-        solver.reset_nodes();
-        let cached = solver.solve(chosen);
-        assert_eq!(cached.score, -18);
-        assert_eq!(cached.nodes, 0);
-        assert!(!cached.timed_out);
     }
 
     #[test]
@@ -846,7 +800,7 @@ mod tests {
         let mut reference = Solver::with_tt_log(20);
         let mut solver = Solver::with_tt_log(20);
         let mut outcomes = [false; 3];
-        for (n, line) in data.lines().take(50).enumerate() {
+        for line in data.lines().take(50) {
             let fields: Vec<_> = line.split_whitespace().collect();
             let expected: i32 = fields[1].parse().unwrap();
             outcomes[(expected.signum() + 1) as usize] = true;
@@ -856,7 +810,10 @@ mod tests {
                 reference.reset_nodes();
                 let full = reference.analyze(pos);
                 assert!(!reference.timed_out());
-                assert_eq!(best_of(&full), Some(expected));
+                assert_eq!(
+                    full.iter().copied().filter(|&s| s != INVALID_MOVE).max(),
+                    Some(expected)
+                );
                 let expected_col = COLUMN_ORDER
                     .iter()
                     .copied()
@@ -864,31 +821,14 @@ mod tests {
                     .unwrap();
 
                 solver.reset_nodes();
-                solver.proven = ProvenTable::new();
-                // Exercise both a persisted exact parent and a fresh solve.
-                if n % 2 == 0 {
-                    solver
-                        .proven
-                        .insert_score(pos.canonical_key(), expected as i8);
-                }
                 let (col, result, partial) = solver.best_move(pos).unwrap();
                 assert!(!result.timed_out, "{seq}");
                 assert_eq!(result.score, expected, "{seq}");
                 assert_eq!(col, expected_col, "{seq}");
                 assert_eq!(partial[col], expected, "{seq}");
-                let nodes = solver.node_count();
-                let known = solver.known_column_scores(&pos);
-                assert_eq!(
-                    known[col], expected,
-                    "selected column must remain available: {seq}"
-                );
-                assert_eq!(solver.node_count(), nodes, "reading hints must not search");
                 for c in 0..WIDTH {
                     if partial[c] != INVALID_MOVE {
                         assert_eq!(partial[c], full[c], "{seq}, column {c}");
-                    }
-                    if known[c] != INVALID_MOVE {
-                        assert_eq!(known[c], full[c], "known hint: {seq}, column {c}");
                     }
                 }
             }
@@ -1071,45 +1011,6 @@ mod tests {
         }
     }
 
-    fn end_easy_first() -> Position {
-        let mut pos = Position::new();
-        let seq = "2252576253462244111563365343671351441";
-        assert_eq!(pos.play_seq(seq), seq.len());
-        pos
-    }
-
-    #[test]
-    fn proven_hit_is_zero_nodes() {
-        let mut solver = Solver::new();
-        let pos = end_easy_first();
-        let r1 = solver.solve(pos);
-        assert!(!r1.timed_out);
-        assert_eq!(r1.score, -1);
-        assert!(
-            r1.nodes > 0 || solver.proven().get(pos.canonical_key()) == Some(-1),
-            "search or trivial prove should populate the table"
-        );
-        solver.reset_nodes();
-        let r2 = solver.solve(pos);
-        assert_eq!(r2.score, -1);
-        assert_eq!(r2.nodes, 0);
-        assert!(!r2.from_score_book);
-    }
-
-    #[test]
-    fn proven_blob_reloads_into_fresh_solver() {
-        let mut solver = Solver::new();
-        let pos = end_easy_first();
-        let r1 = solver.solve(pos);
-        assert!(!r1.timed_out);
-        let blob = solver.proven().save();
-        let mut s2 = Solver::new();
-        s2.load_proven(&blob).unwrap();
-        let r2 = s2.solve(pos);
-        assert_eq!(r2.score, r1.score);
-        assert_eq!(r2.nodes, 0);
-    }
-
     fn mirror_seq(seq: &str) -> String {
         seq.chars()
             .map(|c| {
@@ -1120,43 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn cached_columns_follow_the_board_not_the_canonical_key() {
-        let seq = "2252576253462244111563365343671351441";
-        let mut left = Position::new();
-        assert_eq!(left.play_seq(seq), seq.len());
-        let mir = mirror_seq(seq);
-        let mut right = Position::new();
-        assert_eq!(right.play_seq(&mir), mir.len());
-        assert_eq!(left.canonical_key(), right.canonical_key());
-        assert_ne!(left.key(), right.key(), "fixture must not be symmetric");
-
-        let mut solver = Solver::new();
-        let scores_l = solver.analyze(left);
-        assert!(!solver.timed_out());
-        assert_eq!(solver.known_column_scores(&left), scores_l);
-        let mut expected_r = scores_l;
-        expected_r.reverse();
-        assert_eq!(solver.known_column_scores(&right), expected_r);
-    }
-
-    #[test]
-    fn merge_proven_keeps_local_and_disk_entries() {
-        let mut a = Solver::new();
-        let pos = end_easy_first();
-        let r = a.solve(pos);
-        let blob = a.proven().save();
-
-        let mut b = Solver::new();
-        let mut other = Position::new();
-        other.play_seq("7422341735647741166133573473242566");
-        let r2 = b.solve(other);
-        b.merge_proven(&blob).unwrap();
-        assert_eq!(b.proven().get(pos.canonical_key()), Some(r.score));
-        assert_eq!(b.proven().get(other.canonical_key()), Some(r2.score));
-    }
-
-    #[test]
-    fn select_move_book_hit_resets_stats_and_does_not_pollute_proven_cache() {
+    fn select_move_book_hit_resets_stats() {
         let mut covered = Position::new();
         covered.play_seq("12345");
         let mut move_book = MoveBook::empty(10).unwrap();
@@ -1168,14 +1033,12 @@ mod tests {
         expensive.play_seq("123456");
         let previous = solver.solve(expensive);
         assert!(previous.timed_out);
-        let proven_before = solver.proven().save();
 
         solver.set_move_book(move_book);
         assert_eq!(solver.select_move(covered), Some(3));
         assert_eq!(solver.node_count(), 0);
         assert!(!solver.timed_out());
         assert!(solver.move_book_hit());
-        assert_eq!(solver.proven().save(), proven_before);
     }
 
     #[test]
@@ -1271,15 +1134,12 @@ mod tests {
         pos.play_seq("4455");
         assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
         solver.max_nodes = 100;
-        let (col, result, _) = solver.best_move(pos).unwrap();
+        let (_col, result, _) = solver.best_move(pos).unwrap();
         assert!(!result.timed_out);
-        let cache = solver.proven.save();
-        let known = solver.known_column_scores(&pos);
-        assert_eq!(known[col], 18);
-        assert_eq!(known[3], INVALID_MOVE);
-        assert_eq!(known[4], INVALID_MOVE);
+        // best_move's threshold proof is not cached; only the score book
+        // populates known_column_scores.
+        assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
         assert_eq!(solver.node_count(), result.nodes);
-        assert_eq!(solver.proven.save(), cache);
         assert!(solver.column_scores_from_score_book(&pos).is_none());
 
         let mut interrupted = Solver::with_tt_log(20);
@@ -1331,13 +1191,10 @@ mod tests {
         for col in 1..WIDTH {
             assert_eq!(scores[col], full[col], "column {col}");
         }
-        assert_eq!(solver.known_column_scores(&pos), scores);
-        assert!(solver.proven().get_entry(pos.canonical_key()).is_none());
 
         solver.max_nodes = 0;
         let again = solver.analyze(pos);
         assert!(!solver.timed_out());
         assert_eq!(again, full);
-        assert_eq!(solver.known_column_scores(&pos), full);
     }
 }

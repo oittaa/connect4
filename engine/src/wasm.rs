@@ -1,5 +1,4 @@
 use crate::position::Position;
-use crate::proven::{orient_cols, unpack_cols};
 use crate::solver::{Solver, INVALID_MOVE};
 use wasm_bindgen::prelude::*;
 
@@ -76,7 +75,7 @@ impl WasmEngine {
         }
     }
 
-    /// Read-only hint scores, including children proved by the latest search.
+    /// Read-only hint scores from the score book and immediate wins/losses only.
     /// Unknown and full columns are `INVALID_MOVE`; search stats are unchanged.
     #[wasm_bindgen(js_name = knownColumnScores)]
     pub fn known_column_scores(&self, moves: &[u8]) -> Vec<i16> {
@@ -121,38 +120,18 @@ impl WasmEngine {
         Some(p.canonical_key().to_string())
     }
 
-    /// Miss: empty. Hit: `[score]` or `[score, c0..c6]` (`-1000` = unplayable).
-    #[wasm_bindgen(js_name = cacheGet)]
-    pub fn cache_get(&self, moves: &[u8]) -> Vec<i16> {
-        let mut p = Position::new();
-        if !p.play_moves(moves) {
-            return Vec::new();
-        }
-        let Some(e) = self.solver.proven().get_entry(p.canonical_key()) else {
-            return Vec::new();
-        };
-        let mut out = vec![e.score as i16];
-        if let Some(cols) = e.cols {
-            let cols = orient_cols(cols, p.is_mirrored());
-            out.extend(unpack_cols(&cols).iter().map(|&s| s as i16));
-        }
-        out
+    /// Copy the transposition table out as bytes, for IndexedDB persistence.
+    #[wasm_bindgen(js_name = ttSave)]
+    pub fn tt_save(&self) -> Vec<u8> {
+        self.solver.tt().save()
     }
 
-    /// Merge a persisted blob into the in-memory table (does not replace).
-    #[wasm_bindgen(js_name = cacheLoad)]
-    pub fn cache_load(&mut self, data: &[u8]) -> bool {
-        self.solver.merge_proven(data).is_ok()
-    }
-
-    #[wasm_bindgen(js_name = cacheSave)]
-    pub fn cache_save(&self) -> Vec<u8> {
-        self.solver.proven().save()
-    }
-
-    #[wasm_bindgen(js_name = cacheLen)]
-    pub fn cache_len(&self) -> u32 {
-        self.solver.proven().len() as u32
+    /// Restore the transposition table from a snapshot produced by `ttSave`.
+    /// Rejects a blob whose size or version does not match this table, so a
+    /// native-sized or truncated blob cannot corrupt it.
+    #[wasm_bindgen(js_name = ttLoad)]
+    pub fn tt_load(&mut self, data: &[u8]) -> bool {
+        self.solver.tt_mut().load(data).is_ok()
     }
 
     pub fn solve(&mut self, moves: &[u8]) -> i8 {
