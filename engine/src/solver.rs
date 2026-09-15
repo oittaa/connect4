@@ -75,12 +75,6 @@ impl Solver {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.nodes = 0;
-        self.timed_out = false;
-        self.tt.reset();
-    }
-
     pub fn reset_nodes(&mut self) {
         self.nodes = 0;
         self.timed_out = false;
@@ -787,9 +781,9 @@ mod tests {
         left.play_seq("121314"); // win in one, but we stop before winning drop
         let mut right = Position::new();
         right.play_seq("767574");
-        s.reset();
+        s.reset_nodes();
         let a = s.solve(left);
-        s.reset();
+        s.reset_nodes();
         let b = s.solve(right);
         assert_eq!(a.score, b.score);
     }
@@ -825,8 +819,8 @@ mod tests {
 
         let mut chosen = pos;
         chosen.play_col(col);
-        // The completed proof remains usable after the session TT is cleared.
-        solver.reset();
+        // The completed proof remains usable after later searches.
+        solver.reset_nodes();
         let cached = solver.solve(chosen);
         assert_eq!(cached.score, -18);
         assert_eq!(cached.nodes, 0);
@@ -860,7 +854,7 @@ mod tests {
         // Only the interrupted parent search should visit a node.
         assert_eq!(result.nodes, 1);
         assert_eq!(scores, [INVALID_MOVE; WIDTH]);
-        solver.reset();
+        solver.reset_nodes();
         let retry = solver.solve(pos);
         assert!(retry.timed_out);
         assert!(retry.nodes > 0);
@@ -880,7 +874,7 @@ mod tests {
             for seq in [fields[0].to_owned(), mirror_seq(fields[0])] {
                 let mut pos = Position::new();
                 assert_eq!(pos.play_seq(&seq), seq.len());
-                reference.reset();
+                reference.reset_nodes();
                 let full = reference.analyze(pos);
                 assert!(!reference.timed_out());
                 assert_eq!(best_of(&full), Some(expected));
@@ -890,7 +884,7 @@ mod tests {
                     .find(|&c| full[c] == expected)
                     .unwrap();
 
-                solver.reset();
+                solver.reset_nodes();
                 solver.proven = ProvenTable::new();
                 // Exercise both a persisted exact parent and a fresh solve.
                 if n % 2 == 0 {
@@ -1086,7 +1080,7 @@ mod tests {
             let expect: i32 = parts.next().unwrap().parse().unwrap();
             let mut pos = Position::new();
             assert_eq!(pos.play_seq(seq), seq.len(), "line {}", n + 1);
-            solver.reset();
+            solver.reset_nodes();
             let r = solver.solve(pos);
             assert_eq!(
                 r.score,
@@ -1106,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn proven_hit_after_tt_reset_is_zero_nodes() {
+    fn proven_hit_is_zero_nodes() {
         let mut solver = Solver::new();
         let pos = end_easy_first();
         let r1 = solver.solve(pos);
@@ -1116,7 +1110,7 @@ mod tests {
             r1.nodes > 0 || solver.proven().get(pos.canonical_key()) == Some(-1),
             "search or trivial prove should populate the table"
         );
-        solver.reset();
+        solver.reset_nodes();
         let r2 = solver.solve(pos);
         assert_eq!(r2.score, -1);
         assert_eq!(r2.nodes, 0);

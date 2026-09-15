@@ -24,7 +24,7 @@ fn main() {
     ];
     println!("round,moves,score_book_depth,column,score,nodes,micros");
     for (seq, depth, expected, expected_col) in cases {
-        // Match the browser's roughly 24 MiB TT budget on native builds.
+        // Match the browser's roughly 20 MiB TT budget on native builds.
         let mut solver = Solver::with_tt_log(22);
         if depth == 8 {
             solver.set_score_book(score_book8.clone());
@@ -34,7 +34,7 @@ fn main() {
         assert_eq!(pos.play_seq(seq), seq.len());
         assert_eq!(solver.score_book().get(&pos), Some(expected));
         for round in 1..=repeats {
-            solver.reset();
+            solver.reset_nodes();
             solver.load_proven(&empty_proven).unwrap();
             let (col, result, _) = solver.best_move(pos).unwrap();
             assert!(!result.timed_out);

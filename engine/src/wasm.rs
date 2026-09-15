@@ -42,11 +42,6 @@ impl WasmEngine {
         self.solver.clear_move_book();
     }
 
-    #[wasm_bindgen(js_name = resetTt)]
-    pub fn reset_tt(&mut self) {
-        self.solver.reset();
-    }
-
     #[wasm_bindgen(js_name = nodeCount)]
     pub fn node_count(&self) -> f64 {
         self.solver.node_count() as f64
