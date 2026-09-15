@@ -4,7 +4,6 @@ import type { EngineRequest } from "./engineClient.ts";
 import type { WorkerRes } from "./engineProtocol.ts";
 import {
   restoreRetainedBooks,
-  shouldDownloadBooks,
   shouldStartBookDownload,
   type BookRestoreHost,
 } from "./bookRestore.ts";
@@ -117,7 +116,10 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
     !session.applied.some((r) => r.type === "ready" && r.scoreBookMoves === 8 && r.scoreBookLen === ply8.scoreBookLen),
     "superseded 8-ply ready is not applied",
   );
-  assert(!shouldDownloadBooks(session), "Off does not restart downloads");
+  assert(
+    !shouldStartBookDownload("score", session) && !shouldStartBookDownload("move", session),
+    "Off does not restart downloads",
+  );
 }
 
 {
@@ -132,7 +134,10 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
   turnOn(session);
   assert(session.retainedScoreBook === null && session.retainedMoveBook === null, "Off clears retained bytes");
   assert(session.downloadedBooksEnabled, "On is the latest preference");
-  assert(shouldDownloadBooks(session), "On without retained bytes needs a download");
+  assert(
+    shouldStartBookDownload("score", session) && shouldStartBookDownload("move", session),
+    "On without retained bytes needs a download",
+  );
 
   const client = deferredClient();
   const done = restoreRetainedBooks(client, ready(1), hostFor(session));
@@ -157,7 +162,10 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
   client.release("loadMoveBook", ready(3, move10));
   await done;
   assert(session.applied.some((r) => r.type === "ready" && r.moveBookPopulated === move10.moveBookPopulated), "move book applied");
-  assert(!shouldDownloadBooks(session), "retained bytes still present, no refetch");
+  assert(
+    !shouldStartBookDownload("score", session) && !shouldStartBookDownload("move", session),
+    "retained bytes still present, no refetch",
+  );
 }
 
 {
@@ -172,7 +180,10 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
   };
   assert(shouldStartBookDownload("score", timedOut) === false, "successful score book is not re-fetched");
   assert(shouldStartBookDownload("move", timedOut) === false, "timed-out move book is not auto-retried");
-  assert(!shouldDownloadBooks(timedOut), "afterReady does not restart a timed-out attempt");
+  assert(
+    !shouldStartBookDownload("score", timedOut) && !shouldStartBookDownload("move", timedOut),
+    "afterReady does not restart a timed-out attempt",
+  );
 
   const inFlight = {
     downloadedBooksEnabled: true,
@@ -183,7 +194,10 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
     scoreBookInFlight: true,
     moveBookInFlight: true,
   };
-  assert(!shouldDownloadBooks(inFlight), "replacement does not start a second fetch while one is in flight");
+  assert(
+    !shouldStartBookDownload("score", inFlight) && !shouldStartBookDownload("move", inFlight),
+    "replacement does not start a second fetch while one is in flight",
+  );
 
   const offThenOn = {
     downloadedBooksEnabled: true,
@@ -194,7 +208,10 @@ function types(posted: EngineRequest[]): EngineRequest["type"][] {
     scoreBookInFlight: false,
     moveBookInFlight: false,
   };
-  assert(shouldDownloadBooks(offThenOn), "Off then On retries both books");
+  assert(
+    shouldStartBookDownload("score", offThenOn) && shouldStartBookDownload("move", offThenOn),
+    "Off then On retries both books",
+  );
 }
 
 console.log("book restore checks ok");

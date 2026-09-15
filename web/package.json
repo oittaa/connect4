@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node src/game.medium-test.ts && node src/game.hints-test.ts && node src/engineClient-test.ts && node src/workerReplace-test.ts && node src/bookRestore-test.ts && node src/bookDownload-test.ts",
+    "test": "node src/game.medium-test.ts && node src/game.hints-test.ts && node src/computers-test.ts && node src/engineClient-test.ts && node src/workerReplace-test.ts && node src/bookRestore-test.ts && node src/bookDownload-test.ts",
     "test:browser": "playwright test"
   },
   "devDependencies": {

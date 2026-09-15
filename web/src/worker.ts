@@ -4,43 +4,15 @@
 import { cacheLoad, cacheSave } from "./cache";
 import type { WorkerReq, WorkerRes } from "./engineProtocol";
 import { bestCols, completeMoveScores } from "./game";
+import type { WasmEngine } from "./pkg/engine.js";
 
-type Engine = {
-  solve(moves: Uint8Array): number;
-  analyze(moves: Uint8Array): Int16Array;
-  bestMove(moves: Uint8Array): number;
-  key(moves: Uint8Array): string | undefined;
-  nodeCount(): number;
-  timedOut(): boolean;
-  micros(): number;
-  loadScoreBook(data: Uint8Array): boolean;
-  clearScoreBook(): void;
-  loadMoveBook(data: Uint8Array): boolean;
-  clearMoveBook(): void;
-  setTimeoutMs(ms: number): void;
-  resetTt(): void;
-  scoreBookLen(): number;
-  scoreBookMoves(): number;
-  moveBookMoves(): number;
-  moveBookPopulated(): number;
-  moveBookHit(): boolean;
-  cacheGet(moves: Uint8Array): Int16Array;
-  cacheLoad(data: Uint8Array): boolean;
-  cacheSave(): Uint8Array;
-  cacheLen(): number;
-  scoreBookColumnScores(moves: Uint8Array): Int16Array;
-  knownColumnScores(moves: Uint8Array): Int16Array;
-};
+let engine: WasmEngine | null = null;
 
-let engine: Engine | null = null;
-let scoreBookFetch: AbortController | null = null;
-let moveBookFetch: AbortController | null = null;
-
-async function boot(): Promise<Engine> {
+async function boot(): Promise<WasmEngine> {
   const wasm = await import("./pkg/engine.js");
   const wasmUrl = (await import("./pkg/engine_bg.wasm?url")).default;
   await wasm.default({ module_or_path: wasmUrl });
-  return new wasm.WasmEngine() as unknown as Engine;
+  return new wasm.WasmEngine();
 }
 
 function u8(moves: number[]): Uint8Array {
@@ -50,7 +22,7 @@ function u8(moves: number[]): Uint8Array {
 let persistTimer = 0;
 let persisting: Promise<void> = Promise.resolve();
 
-function schedulePersist(eng: Engine): void {
+function schedulePersist(eng: WasmEngine): void {
   self.clearTimeout(persistTimer);
   persistTimer = self.setTimeout(() => {
     persisting = persisting.then(() => flush(eng)).catch((e) => {
@@ -65,7 +37,7 @@ async function withCacheLock(fn: () => Promise<void>): Promise<void> {
   else await fn();
 }
 
-async function flush(eng: Engine): Promise<void> {
+async function flush(eng: WasmEngine): Promise<void> {
   await withCacheLock(async () => {
     const disk = await cacheLoad();
     if (disk && disk.length >= 12) eng.cacheLoad(disk);
@@ -74,7 +46,7 @@ async function flush(eng: Engine): Promise<void> {
   });
 }
 
-async function loadPersisted(eng: Engine): Promise<void> {
+async function loadPersisted(eng: WasmEngine): Promise<void> {
   // Startup is a pure read, so it must not take the "c4-proven" write lock:
   // locks.request() has no timeout, so another tab holding it mid-flush would
   // stall this worker's "ready" reply indefinitely. The IndexedDB open in
@@ -84,29 +56,13 @@ async function loadPersisted(eng: Engine): Promise<void> {
   if (buf && buf.length >= 12) eng.cacheLoad(buf);
 }
 
-function readHit(
-  hit: Int16Array,
-  needCols: boolean,
-): { score: number; scores?: number[] } | undefined {
-  if (hit.length < 1) return;
-  if (needCols && hit.length < 8) return;
-  return {
-    score: hit[0],
-    scores: hit.length >= 8 ? Array.from(hit.subarray(1, 8)) : undefined,
-  };
+/** Proven cache hit with seven column scores (`[score, c0..c6]`). */
+function readHit(hit: Int16Array): number[] | undefined {
+  if (hit.length < 8) return;
+  return Array.from(hit.subarray(1, 8));
 }
 
-function cancelScoreBookFetch(): void {
-  scoreBookFetch?.abort();
-  scoreBookFetch = null;
-}
-
-function cancelMoveBookFetch(): void {
-  moveBookFetch?.abort();
-  moveBookFetch = null;
-}
-
-function ready(id: number, eng: Engine): WorkerRes {
+function ready(id: number, eng: WasmEngine): WorkerRes {
   return {
     id,
     type: "ready",
@@ -133,104 +89,24 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       return;
     }
     switch (msg.type) {
-      case "fetchScoreBook": {
-        cancelScoreBookFetch();
-        const request = new AbortController();
-        scoreBookFetch = request;
-        try {
-          const res = await fetch(msg.url, { signal: request.signal });
-          if (!res.ok) throw new Error(`Score book download failed (${res.status})`);
-          const bytes = new Uint8Array(await res.arrayBuffer());
-          // Off/on toggles or another download can supersede this request.
-          if (scoreBookFetch === request && !engine.loadScoreBook(bytes)) {
-            throw new Error("Invalid score book download");
-          }
-        } catch (e) {
-          if (!request.signal.aborted) throw e;
-        } finally {
-          if (scoreBookFetch === request) scoreBookFetch = null;
-        }
-        reply(ready(msg.id, engine));
-        break;
-      }
-      case "fetchMoveBook": {
-        cancelMoveBookFetch();
-        const request = new AbortController();
-        moveBookFetch = request;
-        try {
-          const res = await fetch(msg.url, { signal: request.signal });
-          if (!res.ok) throw new Error(`Move book download failed (${res.status})`);
-          const bytes = new Uint8Array(await res.arrayBuffer());
-          if (moveBookFetch === request && !engine.loadMoveBook(bytes)) {
-            throw new Error("Invalid move book download");
-          }
-        } catch (e) {
-          if (!request.signal.aborted) throw e;
-        } finally {
-          if (moveBookFetch === request) moveBookFetch = null;
-        }
-        reply(ready(msg.id, engine));
-        break;
-      }
       case "loadScoreBook":
-        cancelScoreBookFetch();
         if (!engine.loadScoreBook(new Uint8Array(msg.bytes))) throw new Error("Invalid score book");
         reply(ready(msg.id, engine));
         break;
       case "loadMoveBook":
-        cancelMoveBookFetch();
         if (!engine.loadMoveBook(new Uint8Array(msg.bytes))) throw new Error("Invalid move book");
         reply(ready(msg.id, engine));
         break;
       case "clearDownloadedBooks":
-        cancelScoreBookFetch();
-        cancelMoveBookFetch();
         engine.clearScoreBook();
         engine.clearMoveBook();
         reply(ready(msg.id, engine));
         break;
-      case "setTimeout":
-        engine.setTimeoutMs(msg.ms);
-        break;
-      case "solve": {
-        const moves = u8(msg.moves);
-        const key = engine.key(moves) ?? "";
-        const hit = readHit(engine.cacheGet(moves), false);
-        if (hit) {
-          reply({
-            id: msg.id,
-            type: "solved",
-            score: hit.score,
-            nodes: 0,
-            micros: 0,
-            timedOut: false,
-            fromCache: true,
-            key,
-          });
-          break;
-        }
-        const score = engine.solve(moves);
-        const nodes = engine.nodeCount();
-        const micros = engine.micros();
-        const timedOut = engine.timedOut();
-        schedulePersist(engine);
-        reply({
-          id: msg.id,
-          type: "solved",
-          score,
-          nodes,
-          micros,
-          timedOut,
-          fromCache: false,
-          key,
-        });
-        break;
-      }
       case "availableScores": {
         // Read-only hints for active computers, including JS-only Easy moves.
         const moves = u8(msg.moves);
-        const hit = readHit(engine.cacheGet(moves), true);
-        const cached = hit?.scores ? completeMoveScores(hit.scores, msg.moves) : null;
+        const hit = readHit(engine.cacheGet(moves));
+        const cached = hit ? completeMoveScores(hit, msg.moves) : null;
         reply({
           id: msg.id,
           type: "availableScores",
@@ -240,18 +116,16 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       }
       case "analyze": {
         const moves = u8(msg.moves);
-        const key = engine.key(moves) ?? "";
-        const hit = readHit(engine.cacheGet(moves), true);
-        if (hit?.scores) {
+        const hit = readHit(engine.cacheGet(moves));
+        if (hit) {
           reply({
             id: msg.id,
             type: "analyzed",
-            scores: hit.scores,
+            scores: hit,
             nodes: 0,
             micros: 0,
             timedOut: false,
             fromCache: true,
-            key,
           });
           break;
         }
@@ -268,15 +142,13 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           micros,
           timedOut,
           fromCache: false,
-          key,
         });
         break;
       }
       case "bestMove": {
         const moves = u8(msg.moves);
-        const key = engine.key(moves) ?? "";
-        const hit = readHit(engine.cacheGet(moves), true);
-        const cached = hit?.scores ? completeMoveScores(hit.scores, msg.moves) : null;
+        const hit = readHit(engine.cacheGet(moves));
+        const cached = hit ? completeMoveScores(hit, msg.moves) : null;
         if (cached) {
           reply({
             id: msg.id,
@@ -289,7 +161,6 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
             timedOut: false,
             fromCache: true,
             fromMoveBook: false,
-            key,
           });
           break;
         }
@@ -310,7 +181,6 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           timedOut,
           fromCache: false,
           fromMoveBook,
-          key,
         });
         break;
       }

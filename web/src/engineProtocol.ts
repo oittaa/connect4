@@ -11,13 +11,9 @@ export type CompleteColumnScores = [
 
 export type WorkerReq =
   | { id: number; type: "init"; timeoutMs: number }
-  | { id: number; type: "fetchScoreBook"; url: string }
-  | { id: number; type: "fetchMoveBook"; url: string }
   | { id: number; type: "loadScoreBook"; bytes: ArrayBuffer }
   | { id: number; type: "loadMoveBook"; bytes: ArrayBuffer }
   | { id: number; type: "clearDownloadedBooks" }
-  | { id: number; type: "setTimeout"; ms: number }
-  | { id: number; type: "solve"; moves: number[] }
   | { id: number; type: "analyze"; moves: number[] }
   | { id: number; type: "availableScores"; moves: number[] }
   | { id: number; type: "bestMove"; moves: number[] };
@@ -34,23 +30,12 @@ export type WorkerRes =
     }
   | {
       id: number;
-      type: "solved";
-      score: number;
-      nodes: number;
-      micros: number;
-      timedOut: boolean;
-      fromCache: boolean;
-      key: string;
-    }
-  | {
-      id: number;
       type: "analyzed";
       scores: number[];
       nodes: number;
       micros: number;
       timedOut: boolean;
       fromCache: boolean;
-      key: string;
     }
   | {
       id: number;
@@ -64,6 +49,5 @@ export type WorkerRes =
       timedOut: boolean;
       fromCache: boolean;
       fromMoveBook: boolean;
-      key: string;
     }
   | { id: number; type: "error"; message: string };

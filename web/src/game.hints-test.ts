@@ -2,9 +2,7 @@
 
 import {
   analysisReplyApplies,
-  forcedWinOrBlock,
   isActiveComputerTurn,
-  planComputerTurn,
   planHintAndComputer,
   shouldRequestAnalysis,
   shouldRequestAvailableScores,
@@ -26,36 +24,31 @@ function ctx(over: Partial<HintSessionContext> = {}): HintSessionContext {
     engineReady: true,
     gameOver: false,
     paused: false,
-    role: "human",
+    computerToMove: false,
     hasAnalysis: false,
     ...over,
   };
 }
 
-const computer = ctx({ role: "perfect" });
-const easy = ctx({ role: "easy" });
-const medium = ctx({ role: "medium" });
-const pausedComputer = ctx({ role: "perfect", paused: true });
+const computer = ctx({ computerToMove: true });
+const pausedComputer = ctx({ computerToMove: true, paused: true });
 const human = ctx();
 const analyzingHuman = ctx({ hasAnalysis: true });
 
 assert(shouldRequestAnalysis(human), "human turn requests analysis");
 assert(shouldRequestAnalysis(pausedComputer), "paused computer requests analysis");
-assert(!shouldRequestAnalysis(computer), "active Perfect does not request analysis");
-assert(!shouldRequestAnalysis(easy), "active Easy does not request analysis");
-assert(!shouldRequestAnalysis(medium), "active Medium does not request analysis");
-assert(!shouldRequestAnalysis(ctx({ hintsOn: false, role: "human" })), "hints off skips analysis");
+assert(!shouldRequestAnalysis(computer), "active computer does not request analysis");
+assert(!shouldRequestAnalysis(ctx({ hintsOn: false })), "hints off skips analysis");
 assert(!shouldRequestAnalysis(ctx({ engineReady: false })), "engine not ready skips analysis");
 assert(!shouldRequestAnalysis(ctx({ gameOver: true })), "game over skips analysis");
-for (const role of ["easy", "medium", "perfect"] as const) {
-  assert(shouldRequestAvailableScores(ctx({ role })), `${role} can read available scores`);
-  assert(!shouldRequestAvailableScores(ctx({ role, hintsOn: false })), `${role} skips scores with hints off`);
-  assert(!shouldRequestAvailableScores(ctx({ role, engineReady: false })), `${role} waits for the engine`);
-  assert(!shouldRequestAvailableScores(ctx({ role, gameOver: true })), `${role} skips scores at game over`);
-}
+
+assert(shouldRequestAvailableScores(computer), "active computer can read available scores");
+assert(!shouldRequestAvailableScores(ctx({ computerToMove: true, hintsOn: false })), "computer skips scores with hints off");
+assert(!shouldRequestAvailableScores(ctx({ computerToMove: true, engineReady: false })), "computer waits for the engine");
+assert(!shouldRequestAvailableScores(ctx({ computerToMove: true, gameOver: true })), "computer skips scores at game over");
 assert(!shouldRequestAvailableScores(human), "human hints use full analysis");
 assert(!shouldRequestAvailableScores(pausedComputer), "paused hints use full analysis");
-assert(isActiveComputerTurn(computer), "Perfect to move is an active computer");
+assert(isActiveComputerTurn(computer), "computer to move is an active computer");
 assert(!isActiveComputerTurn(pausedComputer), "paused computer is not active");
 assert(!isActiveComputerTurn(human), "human turn is not an active computer");
 
@@ -69,14 +62,9 @@ same(
   "active computer after a move: no analyze, schedule immediately",
 );
 same(
-  planHintAndComputer("position", ctx({ hintsOn: false, role: "perfect" })),
+  planHintAndComputer("position", ctx({ hintsOn: false, computerToMove: true })),
   { invalidateAnalysis: true, requestAnalyze: false, scheduleComputer: true },
   "hints off still schedules the computer immediately",
-);
-same(
-  planHintAndComputer("position", easy),
-  { invalidateAnalysis: true, requestAnalyze: false, scheduleComputer: true },
-  "active Easy after a move: no analyze",
 );
 same(
   planHintAndComputer("position", human),
@@ -87,16 +75,6 @@ same(
   planHintAndComputer("position", pausedComputer),
   { invalidateAnalysis: true, requestAnalyze: true, scheduleComputer: true },
   "Back/pause position still analyzes",
-);
-same(
-  planHintAndComputer("position", ctx({ role: "easy" })),
-  { invalidateAnalysis: true, requestAnalyze: false, scheduleComputer: true },
-  "both-computer: first seat does not analyze",
-);
-same(
-  planHintAndComputer("position", ctx({ role: "medium" })),
-  { invalidateAnalysis: true, requestAnalyze: false, scheduleComputer: true },
-  "both-computer: second seat does not analyze",
 );
 
 same(
@@ -129,12 +107,12 @@ same(
 same(
   planHintAndComputer("role", { ...computer, hasAnalysis: true }),
   { invalidateAnalysis: true, requestAnalyze: false, scheduleComputer: true },
-  "role change to an active computer invalidates in-flight analysis",
+  "seat change to an active computer invalidates in-flight analysis",
 );
 same(
   planHintAndComputer("role", human),
   { invalidateAnalysis: false, requestAnalyze: true, scheduleComputer: true },
-  "role change onto a human turn starts analysis",
+  "seat change onto a human turn starts analysis",
 );
 same(
   planHintAndComputer("role", analyzingHuman),
@@ -165,26 +143,6 @@ assert(!analysisReplyApplies(4, 4, computer), "late reply during an active compu
 assert(
   !analysisReplyApplies(4, 4, ctx({ hintsOn: false })),
   "late reply after hints off does not apply",
-);
-
-const winSeq = [0, 1, 0, 2, 0, 3];
-assert(forcedWinOrBlock(winSeq) === 0, "tactical Medium fixture");
-same(planComputerTurn("easy", [], () => 0), { type: "local", col: 3 }, "Easy is local with hints on");
-same(
-  planComputerTurn("easy", winSeq, () => 0),
-  { type: "local", col: 0 },
-  "Easy mate is local with hints on",
-);
-same(
-  planComputerTurn("medium", winSeq, () => 0),
-  { type: "local", col: 0 },
-  "tactical Medium issues no solver request",
-);
-same(planComputerTurn("perfect", [], () => 0), { type: "engine" }, "Perfect still uses the engine");
-same(
-  planComputerTurn("perfect", [3, 3, 3, 3, 3, 1, 1, 1], () => 0),
-  { type: "engine" },
-  "Perfect at 44444222 still asks the engine (compact book is inside bestMove)",
 );
 
 console.log("hint scheduling checks ok");

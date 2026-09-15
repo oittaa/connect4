@@ -6,7 +6,7 @@
 
 import { createEngineClient, WORKER_REPLACED, type EnginePort } from "./engineClient.ts";
 import type { WorkerReq, WorkerRes } from "./engineProtocol.ts";
-import { restoreRetainedBooks, shouldDownloadBooks, type BookRestoreHost } from "./bookRestore.ts";
+import { restoreRetainedBooks, shouldStartBookDownload, type BookRestoreHost } from "./bookRestore.ts";
 import { createWorkerReplace, type SpawnedWorker, type WorkerReplaceHost } from "./workerReplace.ts";
 
 function assert(cond: boolean, msg: string): void {
@@ -126,7 +126,7 @@ function bestMoveMoves(worker: MockWorker): number[][] {
 
 function computeTypes(worker: MockWorker): WorkerReq["type"][] {
   return worker.posted
-    .filter((m) => m.type === "analyze" || m.type === "bestMove" || m.type === "solve")
+    .filter((m) => m.type === "analyze" || m.type === "bestMove")
     .map((m) => m.type);
 }
 
@@ -273,7 +273,7 @@ const afterBack = inflight.slice(0, -1);
     onReplaceStart() {},
     restoreBooks: (client, readyMsg) => restoreRetainedBooks(client, readyMsg, bookHost),
     afterReady() {
-      downloadAfterReady = shouldDownloadBooks(books);
+      downloadAfterReady = shouldStartBookDownload("score", books) || shouldStartBookDownload("move", books);
     },
     onInitFailure() {},
     isEngineFailed: () => false,
@@ -325,7 +325,7 @@ const afterBack = inflight.slice(0, -1);
     onReplaceStart() {},
     restoreBooks: (client, readyMsg) => restoreRetainedBooks(client, readyMsg, bookHost),
     afterReady() {
-      downloadAfterReady = shouldDownloadBooks(books);
+      downloadAfterReady = shouldStartBookDownload("score", books) || shouldStartBookDownload("move", books);
     },
     onInitFailure() {},
     isEngineFailed: () => false,

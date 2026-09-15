@@ -1,16 +1,22 @@
 import {
+  computers,
+  planComputer,
+  resolveSolverColumn,
+  seatFromFormValue,
+  type ComputerPlan,
+  type Seat,
+} from "./computers/index.ts";
+import {
   AREA,
   HEIGHT,
   INVALID,
   WIDTH,
   analysisReplyApplies,
   analysisScoreClass,
-  chooseAfterEngine,
   formatScore,
   isDraw,
   isActiveComputerTurn,
   lastMoveWin,
-  planComputerTurn,
   planHintAndComputer,
   playMoves,
   provenBestColumns,
@@ -19,11 +25,8 @@ import {
   shouldShowHintDisplay,
   statusText,
   toMove,
-  type ComputerRole,
-  type ComputerTurnPlan,
   type HintSessionContext,
   type HintSessionEvent,
-  type Role,
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
@@ -34,7 +37,7 @@ import { createWorkerReplace } from "./workerReplace";
 
 const history: number[] = [];
 let cursor = 0;
-let roles: [Role, Role] = ["human", "human"];
+let seats: [Seat, Seat] = [{ kind: "human" }, { kind: "human" }];
 let analysis: { scores: number[]; timedOut: boolean } | null = null;
 let analyzing = false;
 let analysisGeneration = 0;
@@ -190,12 +193,12 @@ function gameOver(): boolean {
   return lastMoveWin(m) !== null || isDraw(m) || m.length >= AREA;
 }
 
-function currentRole(): Role {
-  return roles[toMove(played()) - 1];
+function currentSeat(): Seat {
+  return seats[toMove(played()) - 1];
 }
 
 function hasComputer(): boolean {
-  return roles.some((role) => role !== "human");
+  return seats.some((seat) => seat.kind === "computer");
 }
 
 function initBoard(): void {
@@ -310,7 +313,7 @@ function renderBoard(animateLast: boolean): void {
 
 function tryDrop(col: number): void {
   if (gameOver()) return;
-  if (currentRole() !== "human") return;
+  if (currentSeat().kind !== "human") return;
   const g = playMoves(played());
   if (g.height[col] >= HEIGHT) return;
   applyMove(col);
@@ -336,7 +339,7 @@ function hintContext(): HintSessionContext {
     engineReady,
     gameOver: gameOver(),
     paused,
-    role: currentRole(),
+    computerToMove: currentSeat().kind === "computer",
     hasAnalysis: analysis !== null || analyzing,
   };
 }
@@ -365,9 +368,8 @@ let cpuGeneration = 0;
 
 type PendingComputerTurn = {
   generation: number;
-  role: ComputerRole;
   moves: number[];
-  plan: ComputerTurnPlan;
+  plan: ComputerPlan;
 };
 
 function cancelComputerMove(): void {
@@ -385,17 +387,17 @@ function scheduleComputer(): void {
   cancelComputerMove();
   if (!hasComputer()) paused = false;
   if (gameOver() || paused) return;
-  const role = currentRole();
-  if (role === "human") return;
+  const seat = currentSeat();
+  if (seat.kind === "human") return;
   const moves = played();
-  const plan = planComputerTurn(role, moves);
+  const plan = planComputer(computers[seat.computerId], moves);
   if (plan === null) return;
-  if (plan.type === "engine" && !engineReady) {
+  if (plan.type === "solver" && !engineReady) {
     if (!engineFailed) engineLine.textContent = "Waiting for solver…";
     return;
   }
-  if (plan.type === "engine") thinking = true;
-  const turn: PendingComputerTurn = { generation: cpuGeneration, role, moves, plan };
+  if (plan.type === "solver") thinking = true;
+  const turn: PendingComputerTurn = { generation: cpuGeneration, moves, plan };
   if (plan.type === "local") {
     cpuTimer = window.setTimeout(() => { void executeComputerTurn(turn); }, delayMs);
   } else {
@@ -420,7 +422,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     return;
   }
   reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
-  const col = chooseAfterEngine(turn.role, turn.moves, r.col, r.moveScores);
+  const col = resolveSolverColumn(turn.plan.choose, { col: r.col, moveScores: r.moveScores }, turn.moves);
   computerHintGeneration++;
   computerHints = r.hintScores.some((s) => s !== INVALID)
     ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : r.col }
@@ -574,18 +576,43 @@ copyBtn.addEventListener("click", async () => {
   }
 });
 
-document.querySelectorAll<HTMLInputElement>('input[name="role0"]').forEach((el) => {
-  el.addEventListener("change", () => {
-    roles[0] = el.value as Role;
-    applyHintComputer("role", false);
+function bindSeat(seat: 0 | 1): void {
+  document.querySelectorAll<HTMLInputElement>(`input[name="role${seat}"]`).forEach((el) => {
+    el.addEventListener("change", () => {
+      const next = seatFromFormValue(el.value);
+      if (next === null) return;
+      seats[seat] = next;
+      applyHintComputer("role", false);
+    });
   });
-});
-document.querySelectorAll<HTMLInputElement>('input[name="role1"]').forEach((el) => {
-  el.addEventListener("change", () => {
-    roles[1] = el.value as Role;
-    applyHintComputer("role", false);
+}
+
+function radioOption(name: string, value: string, label: string, checked: boolean): HTMLLabelElement {
+  const wrap = document.createElement("label");
+  const input = document.createElement("input");
+  input.type = "radio";
+  input.name = name;
+  input.value = value;
+  if (checked) input.checked = true;
+  const span = document.createElement("span");
+  span.textContent = label;
+  wrap.append(input, span);
+  return wrap;
+}
+
+function fillSeatRadios(): void {
+  document.querySelectorAll<HTMLElement>(".roles").forEach((group, seat) => {
+    const name = `role${seat}`;
+    group.replaceChildren(radioOption(name, "human", "Human", true));
+    for (const [id, policy] of Object.entries(computers)) {
+      group.append(radioOption(name, id, policy.label, false));
+    }
   });
-});
+}
+
+fillSeatRadios();
+bindSeat(0);
+bindSeat(1);
 
 document.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
