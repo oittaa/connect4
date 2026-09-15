@@ -117,12 +117,17 @@ const fn is_prime(n: usize) -> bool {
     if n.is_multiple_of(2) {
         return n == 2;
     }
-    let mut d = 3;
+    if n.is_multiple_of(3) {
+        return n == 3;
+    }
+    // 6k±1 wheel: past 2 and 3, every prime is 6k+1 or 6k+5, so we only
+    // need to trial-divide by d and d+2 each step, skipping multiples of 2 and 3.
+    let mut d = 5;
     while d <= n / d {
-        if n.is_multiple_of(d) {
+        if n.is_multiple_of(d) || n.is_multiple_of(d + 2) {
             return false;
         }
-        d += 2;
+        d += 6;
     }
     true
 }
@@ -161,5 +166,15 @@ mod tests {
         assert_eq!(t.get(1), None);
         t.put(99, 0, FLAG_EMPTY);
         assert_eq!(t.get(99), None);
+    }
+
+    #[test]
+    fn primes_table_unchanged() {
+        // Next prime after each 2^log for log in MIN_LOG..=MAX_LOG (12..=27).
+        const EXPECTED: [usize; PRIME_LEN] = [
+            4099, 8209, 16411, 32771, 65537, 131101, 262147, 524309, 1048583, 2097169, 4194319,
+            8388617, 16777259, 33554467, 67108879, 134217757,
+        ];
+        assert_eq!(PRIMES, EXPECTED);
     }
 }
