@@ -29,13 +29,10 @@ async function restoreTT(eng: WasmEngine): Promise<void> {
   }
 }
 
-/** Called once per finished game, not after every search. Skips the write
- * entirely if no search has changed the table since the last save/load. */
+/** Called once per finished game, not after every search. */
 async function persistTT(eng: WasmEngine): Promise<void> {
-  if (!eng.ttDirty()) return;
   try {
     await saveTT(eng.ttSave());
-    eng.ttMarkClean();
   } catch (e) {
     console.error("TT save failed", e);
   }
