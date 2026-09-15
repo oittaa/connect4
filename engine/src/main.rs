@@ -501,7 +501,7 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
             fail += 1;
             continue;
         }
-        solver.reset();
+        solver.reset_nodes();
         let r = solver.solve(pos);
         total_nodes += r.nodes;
         total_us += r.micros;

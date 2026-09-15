@@ -1,13 +1,14 @@
 //! Pons-style transposition table: two arrays, compact value, prime modulus.
 //!
 //! - `K[i]`: truncated key (u32)
-//! - `V[i]`: packed bound+score in the low 8 bits, generation in the high 8
+//! - `V[i]`: packed bound+score (u8)
 //!
 //! Index is `key % prime(2^log)`. Together with a 32-bit stub this is unique
 //! for 49-bit Connect-4 keys (same CRT idea as Pons, who stores 25 bits and
 //! indexes with ~24). Misses touch 4-byte keys, not an 8-byte struct.
 //!
-//! Always-replace. Generation makes reset O(1) (no 80MB memset).
+//! Always-replace. The table stays warm across searches; there is no generation
+//! stamp and no production wipe.
 
 use crate::position::{MAX_SCORE, MIN_SCORE};
 
@@ -19,9 +20,8 @@ const RANGE: i32 = MAX_SCORE - MIN_SCORE + 1; // 37
 
 pub struct Table {
     keys: Box<[u32]>,
-    vals: Box<[u16]>,
+    vals: Box<[u8]>,
     size: usize,
-    gen: u8,
 }
 
 /// Solver clamps `--tt-bits` to 16..=27. `Table::new` also allows 12 for tests.
@@ -44,24 +44,10 @@ impl Table {
         let log_size = log_size.clamp(MIN_LOG, MAX_LOG);
         let size = PRIMES[(log_size - MIN_LOG) as usize];
         let mut keys = vec![0u32; size].into_boxed_slice();
-        let mut vals = vec![0u16; size].into_boxed_slice();
+        let mut vals = vec![0u8; size].into_boxed_slice();
         advise_huge_pages(&mut keys);
         advise_huge_pages(&mut vals);
-        Self {
-            keys,
-            vals,
-            size,
-            gen: 1,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.gen = self.gen.wrapping_add(1);
-        if self.gen == 0 {
-            self.keys.fill(0);
-            self.vals.fill(0);
-            self.gen = 1;
-        }
+        Self { keys, vals, size }
     }
 
     #[inline]
@@ -75,11 +61,7 @@ impl Table {
         if unsafe { *self.keys.get_unchecked(i) } != key as u32 {
             return None;
         }
-        let v = unsafe { *self.vals.get_unchecked(i) };
-        if (v >> 8) as u8 != self.gen {
-            return None;
-        }
-        let packed = v as u8;
+        let packed = unsafe { *self.vals.get_unchecked(i) };
         if packed == 0 {
             return None;
         }
@@ -95,7 +77,7 @@ impl Table {
         let i = self.index(key);
         unsafe {
             *self.keys.get_unchecked_mut(i) = key as u32;
-            *self.vals.get_unchecked_mut(i) = packed as u16 | ((self.gen as u16) << 8);
+            *self.vals.get_unchecked_mut(i) = packed;
         }
     }
 }
@@ -179,9 +161,5 @@ mod tests {
         assert_eq!(t.get(1), None);
         t.put(99, 0, FLAG_EMPTY);
         assert_eq!(t.get(99), None);
-        t.reset();
-        assert_eq!(t.get(12345), None);
-        t.put(12345, -3, FLAG_UPPER);
-        assert_eq!(t.get(12345), Some((-3, FLAG_UPPER)));
     }
 }
