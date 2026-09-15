@@ -18,6 +18,12 @@ pub const FLAG_LOWER: u8 = 2;
 
 const RANGE: i32 = MAX_SCORE - MIN_SCORE + 1; // 37
 
+/// `save`/`load` snapshot format: magic, version, reserved, then slot count
+/// as a `u64`, so `load` can reject a blob sized for a different table.
+const SNAPSHOT_MAGIC: &[u8; 4] = b"C4TT";
+const SNAPSHOT_VERSION: u8 = 1;
+const SNAPSHOT_HEADER: usize = 16;
+
 pub struct Table {
     keys: Box<[u32]>,
     vals: Box<[u8]>,
@@ -79,6 +85,55 @@ impl Table {
             *self.keys.get_unchecked_mut(i) = key as u32;
             *self.vals.get_unchecked_mut(i) = packed;
         }
+    }
+
+    /// Serialize as `magic(4) + version(1) + reserved(3) + slot count(u64) +
+    /// keys (u32 each) + vals (u8 each)`, for persisting a warm table.
+    pub fn save(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(SNAPSHOT_HEADER + self.size * 5);
+        out.extend_from_slice(SNAPSHOT_MAGIC);
+        out.push(SNAPSHOT_VERSION);
+        out.extend_from_slice(&[0, 0, 0]);
+        out.extend_from_slice(&(self.size as u64).to_le_bytes());
+        for k in self.keys.iter() {
+            out.extend_from_slice(&k.to_le_bytes());
+        }
+        out.extend_from_slice(&self.vals);
+        out
+    }
+
+    /// Overwrite this table from a `save` snapshot. Rejects bad magic,
+    /// version, or a slot count that does not match this table's size, so a
+    /// native-sized or truncated blob cannot corrupt the table.
+    pub fn load(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if bytes.len() < SNAPSHOT_HEADER {
+            return Err("tt snapshot too small".into());
+        }
+        if &bytes[0..4] != SNAPSHOT_MAGIC {
+            return Err("bad tt snapshot magic".into());
+        }
+        if bytes[4] != SNAPSHOT_VERSION {
+            return Err(format!("unsupported tt snapshot version {}", bytes[4]));
+        }
+        let slots = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize;
+        if slots != self.size {
+            return Err(format!(
+                "tt size mismatch: table has {} slots, snapshot has {slots}",
+                self.size
+            ));
+        }
+        let keys_len = self.size * 4;
+        if bytes.len() != SNAPSHOT_HEADER + keys_len + self.size {
+            return Err("tt snapshot length mismatch".into());
+        }
+        let key_bytes = &bytes[SNAPSHOT_HEADER..SNAPSHOT_HEADER + keys_len];
+        let (chunks, _) = key_bytes.as_chunks::<4>();
+        for (dst, chunk) in self.keys.iter_mut().zip(chunks) {
+            *dst = u32::from_le_bytes(*chunk);
+        }
+        self.vals
+            .copy_from_slice(&bytes[SNAPSHOT_HEADER + keys_len..]);
+        Ok(())
     }
 }
 
@@ -166,6 +221,42 @@ mod tests {
         assert_eq!(t.get(1), None);
         t.put(99, 0, FLAG_EMPTY);
         assert_eq!(t.get(99), None);
+    }
+
+    #[test]
+    fn save_load_roundtrip() {
+        let mut t = Table::new(12);
+        t.put(12345, 4, FLAG_LOWER);
+        t.put(999, -3, FLAG_UPPER);
+        let blob = t.save();
+
+        let mut t2 = Table::new(12);
+        t2.load(&blob).unwrap();
+        assert_eq!(t2.get(12345), Some((4, FLAG_LOWER)));
+        assert_eq!(t2.get(999), Some((-3, FLAG_UPPER)));
+        assert_eq!(t2.get(1), None);
+    }
+
+    #[test]
+    fn load_rejects_wrong_size_magic_version_and_truncation() {
+        let mut t = Table::new(12);
+        let blob = t.save();
+
+        let mut wrong_size = Table::new(13);
+        assert!(wrong_size.load(&blob).is_err());
+
+        assert!(t.load(b"short").is_err());
+
+        let mut bad_magic = blob.clone();
+        bad_magic[0] = b'X';
+        assert!(t.load(&bad_magic).is_err());
+
+        let mut bad_version = blob.clone();
+        bad_version[4] = 99;
+        assert!(t.load(&bad_version).is_err());
+
+        let truncated = &blob[..blob.len() - 1];
+        assert!(t.load(truncated).is_err());
     }
 
     #[test]

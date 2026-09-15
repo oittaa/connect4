@@ -4,7 +4,6 @@ pub mod move_book;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod move_book_gen;
 pub mod position;
-pub mod proven;
 pub mod score_book;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod score_to_move;

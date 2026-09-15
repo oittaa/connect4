@@ -140,15 +140,17 @@ for (const seats of [[0, 1], [1, 0]]) {
   });
 }
 
-test("a computer can reuse proven cached scores beyond the opening books", async ({ page }) => {
+test("switching a human seat to a computer during play does not request another analyze", async ({ page }) => {
   await openApp(page, "122435527534575161761");
   await page.locator("#analyze").check();
   await expectScores(page);
   await expect(page.locator("#engine-line")).not.toContainText(/analyzing/i);
-  const scores = await page.locator("#scores span").allTextContents();
   await setRole(page, 1, "perfect");
-  await expect(page.locator("#scores span")).toHaveText(scores);
+  await expect.poll(() => page.evaluate(() => (window as any).hintTest.replies.some((r: any) => r.type === "moved"))).toBe(true);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
+  // The bestMove search's own result (column 4, W10) reaches the UI instead
+  // of being discarded.
+  await expect(page.locator('#board [data-col="3"]')).toHaveClass(/best-col/);
 });
 
 test("fresh late-game search scores are visible before each computer drops its disc", async ({ page }) => {
@@ -161,8 +163,11 @@ test("fresh late-game search scores are visible before each computer drops its d
     await expect.poll(() => page.evaluate(() => (window as any).hintTest.replies.filter((r: any) => r.type === "moved").length)).toBe(turn + 1);
     const result = await page.evaluate(() => (window as any).hintTest.replies.filter((r: any) => r.type === "moved").at(-1));
     expect(result.timedOut).toBe(false);
-    expect(result.fromCache).toBe(false);
-    if (turn === 0) expect(result.nodes).toBeGreaterThan(0);
+    if (turn === 0) {
+      expect(result.nodes).toBeGreaterThan(0);
+      expect(result.col).toBe(3);
+      expect(result.hintScores[3]).toBe(10);
+    }
     const scores = result.hintScores.map((s: number) => s === -1000 ? "" : s === 0 ? "D" : s > 0 ? `W${s}` : `L${-s}`);
     await expect(page.locator(".disc")).toHaveCount(21 + turn);
     await expect(page.locator("#scores span")).toHaveText(scores);
@@ -179,6 +184,7 @@ test("partial computer hints do not suppress full analysis after switching to Hu
   await page.locator("#analyze").check();
   await expect(page.locator('#board [data-col="3"]')).toHaveClass(/best-col/);
   await setRole(page, 1, "human");
+  await expect(page.locator(".disc")).toHaveCount(21);
   await expectScores(page);
   await expect(page.locator("#scores span")).toHaveText(["L1", "D", "W10", "W10", "L2", "L2", "L2"]);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);

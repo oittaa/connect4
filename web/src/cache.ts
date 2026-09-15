@@ -1,7 +1,7 @@
-const DB_NAME = "c4-proven";
+const DB_NAME = "c4-tt";
 const DB_VERSION = 1;
 const STORE = "blob";
-const RECORD = "proven";
+const RECORD = "tt";
 /** Bound so a blocked version upgrade cannot stall the solver. */
 const OPEN_MS = 400;
 
@@ -60,7 +60,8 @@ function openDb(): Promise<IDBDatabase | null> {
   return dbp;
 }
 
-export async function cacheLoad(): Promise<Uint8Array | undefined> {
+/** Load a persisted TT snapshot, or `undefined` on a miss or any failure. */
+export async function loadTT(): Promise<Uint8Array | undefined> {
   try {
     const db = await openDb();
     if (!db) return undefined;
@@ -80,13 +81,18 @@ export async function cacheLoad(): Promise<Uint8Array | undefined> {
   }
 }
 
-export async function cacheSave(data: Uint8Array): Promise<void> {
+/**
+ * Persist a TT snapshot. Swallows quota/transaction failures; the caller logs.
+ * Takes ownership of `data` without copying it — `put`'s structured clone
+ * does its own copy, and the caller (a freshly returned `ttSave()` buffer)
+ * does not reuse it afterward.
+ */
+export async function saveTT(data: Uint8Array): Promise<void> {
   const db = await openDb();
   if (!db) return;
-  const copy = data.slice();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(copy, RECORD);
+    tx.objectStore(STORE).put(data, RECORD);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
