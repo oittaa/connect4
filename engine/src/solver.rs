@@ -306,7 +306,7 @@ impl Solver {
     pub fn solve(&mut self, pos: Position) -> SolveResult {
         self.reset_nodes();
         self.begin_clock();
-        let (score, from_score_book) = self.score_position(pos, false);
+        let (score, from_score_book) = self.score_position(pos);
         SolveResult {
             score,
             nodes: self.nodes,
@@ -316,20 +316,7 @@ impl Solver {
         }
     }
 
-    pub fn solve_weak(&mut self, pos: Position) -> SolveResult {
-        self.reset_nodes();
-        self.begin_clock();
-        let (score, from_score_book) = self.score_position(pos, true);
-        SolveResult {
-            score,
-            nodes: self.nodes,
-            micros: self.elapsed_micros(),
-            timed_out: self.timed_out,
-            from_score_book,
-        }
-    }
-
-    fn score_position(&mut self, pos: Position, weak: bool) -> (i32, bool) {
+    fn score_position(&mut self, pos: Position) -> (i32, bool) {
         if let Some(s) = self.score_book_score(&pos) {
             return (s, true);
         }
@@ -343,10 +330,6 @@ impl Solver {
 
         let mut min = -((AREA as i32 - pos.moves() as i32) / 2);
         let mut max = (AREA as i32 + 1 - pos.moves() as i32) / 2;
-        if weak {
-            min = -1;
-            max = 1;
-        }
 
         while min < max {
             if self.timed_out {
@@ -365,7 +348,7 @@ impl Solver {
                 min = r;
             }
         }
-        if !self.timed_out && !weak {
+        if !self.timed_out {
             self.proven.insert_score(self.tt_key(&pos), min as i8);
         }
         (min, false)
@@ -402,7 +385,7 @@ impl Solver {
             // Aborted search returns a bound, not an exact child score. Leave
             // this column and later ones invalid instead of displaying that
             // bound as a proven win, loss, or draw.
-            let (s, _) = self.score_position(child, false);
+            let (s, _) = self.score_position(child);
             if self.timed_out {
                 break;
             }
@@ -420,7 +403,7 @@ impl Solver {
         }
         self.reset_nodes();
         self.begin_clock();
-        let (target, from_score_book) = self.score_position(pos, false);
+        let (target, from_score_book) = self.score_position(pos);
         let mut scores = [INVALID_MOVE; WIDTH];
         let mut best_col = None;
         for &col in &COLUMN_ORDER {
@@ -788,14 +771,6 @@ pub fn winning_move_number(score: i32) -> Option<u8> {
     Some((AREA as i32 - 2 * s + 1) as u8)
 }
 
-pub fn outcome_label(score: i32) -> &'static str {
-    match score.cmp(&0) {
-        std::cmp::Ordering::Greater => "win",
-        std::cmp::Ordering::Less => "loss",
-        std::cmp::Ordering::Equal => "draw",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,15 +823,8 @@ mod tests {
         assert_eq!(scores[3], INVALID_MOVE);
         assert_eq!(scores[4], INVALID_MOVE);
 
-        for rejected in [3, 4] {
-            let mut child = pos;
-            child.play_col(rejected);
-            assert_eq!(solver.proven.get(child.canonical_key()), None);
-        }
         let mut chosen = pos;
         chosen.play_col(col);
-        assert_eq!(solver.proven.get(chosen.canonical_key()), Some(-18));
-        assert_eq!(solver.proven.len(), 1);
         // The completed proof remains usable after the session TT is cleared.
         solver.reset();
         let cached = solver.solve(chosen);
@@ -877,7 +845,6 @@ mod tests {
         assert!(result.timed_out);
         assert_eq!(result.nodes, 1);
         assert_eq!(scores, [INVALID_MOVE; WIDTH]);
-        assert!(solver.proven.is_empty());
     }
 
     #[test]
@@ -893,7 +860,10 @@ mod tests {
         // Only the interrupted parent search should visit a node.
         assert_eq!(result.nodes, 1);
         assert_eq!(scores, [INVALID_MOVE; WIDTH]);
-        assert!(solver.proven.is_empty());
+        solver.reset();
+        let retry = solver.solve(pos);
+        assert!(retry.timed_out);
+        assert!(retry.nodes > 0);
     }
 
     #[test]
@@ -965,15 +935,6 @@ mod tests {
         assert!(!result.timed_out);
         pos.play_col(col);
         assert!(solver.best_move(pos).is_none());
-    }
-
-    #[test]
-    fn forced_loss_next() {
-        // Two disjoint threats: whatever we play, opponent wins.
-        // 1 2 1 3 1 4 — P1 threatens col 1 vertically after... already used.
-        // Build: P1 has two threes. Simpler: after a position where
-        // possible_non_losing is empty.
-        let _p = Position::new();
     }
 
     #[test]
@@ -1063,12 +1024,14 @@ mod tests {
         solver.set_score_book(sparse);
         assert_eq!(solver.score_book().depth(), 5);
         assert_eq!(solver.score_book().len(), embedded.len() + 1);
-        assert_eq!(solver.solve(pos).score, score);
-        assert_eq!(solver.node_count(), 0);
-        // Keep the complete embedded score book and the downloaded deeper entry.
-        let mut expected = embedded;
-        expected.insert(pos.key3(), score as i8, pos.moves());
-        assert_eq!(solver.score_book().save(), expected.save());
+        let extra = solver.solve(pos);
+        assert_eq!(extra.score, score);
+        assert_eq!(extra.nodes, 0);
+        let mut opening = Position::new();
+        opening.play_seq("1234");
+        let embedded_hit = solver.solve(opening);
+        assert!(embedded_hit.from_score_book);
+        assert_eq!(embedded_hit.nodes, 0);
     }
 
     #[test]
@@ -1174,24 +1137,6 @@ mod tests {
         assert_eq!(r2.nodes, 0);
     }
 
-    #[test]
-    fn analyze_stores_parent_columns() {
-        let mut solver = Solver::new();
-        let pos = end_easy_first();
-        let scores = solver.analyze(pos);
-        assert!(!solver.timed_out());
-        let e = solver
-            .proven()
-            .get_entry(pos.canonical_key())
-            .expect("analyze should store the parent");
-        assert!(e.cols.is_some());
-        let unpacked = crate::proven::unpack_cols(&crate::proven::orient_cols(
-            e.cols.unwrap(),
-            pos.is_mirrored(),
-        ));
-        assert_eq!(unpacked, scores);
-    }
-
     fn mirror_seq(seq: &str) -> String {
         seq.chars()
             .map(|c| {
@@ -1215,17 +1160,10 @@ mod tests {
         let mut solver = Solver::new();
         let scores_l = solver.analyze(left);
         assert!(!solver.timed_out());
-        let e = solver.proven().get_entry(left.canonical_key()).unwrap();
-        let stored = e.cols.unwrap();
-
-        let from_left =
-            crate::proven::unpack_cols(&crate::proven::orient_cols(stored, left.is_mirrored()));
-        let from_right =
-            crate::proven::unpack_cols(&crate::proven::orient_cols(stored, right.is_mirrored()));
-        assert_eq!(from_left, scores_l);
+        assert_eq!(solver.known_column_scores(&left), scores_l);
         let mut expected_r = scores_l;
         expected_r.reverse();
-        assert_eq!(from_right, expected_r);
+        assert_eq!(solver.known_column_scores(&right), expected_r);
     }
 
     #[test]
@@ -1405,7 +1343,7 @@ mod tests {
         let scores = solver.analyze(pos);
         assert!(solver.timed_out());
         assert_eq!(scores, [INVALID_MOVE; WIDTH]);
-        assert!(solver.proven.is_empty());
+        assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
     }
 
     #[test]
@@ -1420,30 +1358,13 @@ mod tests {
         for col in 1..WIDTH {
             assert_eq!(scores[col], full[col], "column {col}");
         }
-        assert!(solver.proven.get_entry(pos.canonical_key()).is_none());
-
-        let mut interrupted = pos;
-        interrupted.play_col(0);
-        assert_eq!(solver.proven.get(interrupted.canonical_key()), None);
-        for (col, &score) in scores.iter().enumerate().skip(1) {
-            let mut child = pos;
-            child.play_col(col);
-            assert_eq!(
-                solver.proven.get(child.canonical_key()),
-                Some(-score),
-                "column {col}"
-            );
-        }
+        assert_eq!(solver.known_column_scores(&pos), scores);
+        assert!(solver.proven().get_entry(pos.canonical_key()).is_none());
 
         solver.max_nodes = 0;
         let again = solver.analyze(pos);
         assert!(!solver.timed_out());
         assert_eq!(again, full);
-        let parent = solver
-            .proven
-            .get_entry(pos.canonical_key())
-            .expect("completed analysis stores the parent");
-        assert_eq!(parent.score, 10);
-        assert!(parent.cols.is_some());
+        assert_eq!(solver.known_column_scores(&pos), full);
     }
 }

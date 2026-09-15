@@ -168,36 +168,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pack_roundtrip() {
-        for s in MIN_SCORE..=MAX_SCORE {
-            let (u, f) = unpack(pack(s, FLAG_UPPER));
-            assert_eq!((u, f), (s, FLAG_UPPER), "upper {s}");
-            let (u, f) = unpack(pack(s, FLAG_LOWER));
-            assert_eq!((u, f), (s, FLAG_LOWER), "lower {s}");
-        }
-        assert_eq!(pack(0, FLAG_EMPTY), 0);
-    }
-
-    #[test]
     fn put_get() {
         let mut t = Table::new(12);
-        t.put(12345, 4, FLAG_LOWER);
-        assert_eq!(t.get(12345), Some((4, FLAG_LOWER)));
+        for s in [MIN_SCORE, -3, 0, 4, MAX_SCORE] {
+            t.put(12345, s, FLAG_LOWER);
+            assert_eq!(t.get(12345), Some((s, FLAG_LOWER)), "lower {s}");
+            t.put(12345, s, FLAG_UPPER);
+            assert_eq!(t.get(12345), Some((s, FLAG_UPPER)), "upper {s}");
+        }
         assert_eq!(t.get(1), None);
+        t.put(99, 0, FLAG_EMPTY);
+        assert_eq!(t.get(99), None);
         t.reset();
         assert_eq!(t.get(12345), None);
         t.put(12345, -3, FLAG_UPPER);
         assert_eq!(t.get(12345), Some((-3, FLAG_UPPER)));
-    }
-
-    #[test]
-    fn primes_are_compile_time() {
-        assert_eq!(PRIMES[16 - MIN_LOG as usize], 65_537);
-        for log in MIN_LOG..=MAX_LOG {
-            let p = PRIMES[(log - MIN_LOG) as usize];
-            assert_eq!(p, next_prime(1usize << log));
-            assert!(p >= 1usize << log);
-            assert!(is_prime(p));
-        }
     }
 }

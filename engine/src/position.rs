@@ -455,26 +455,16 @@ mod tests {
         assert!(p.is_winning_move(3));
         p.play_col(3);
         assert!(p.last_player_won());
-        assert!(has_won(p.current ^ p.mask));
     }
 
     #[test]
     fn diagonal_win() {
-        // A common rising diagonal for P1.
         let mut p = Position::new();
-        assert_eq!(p.play_seq("1223434455"), 10);
-        // After this, check whether someone already won — construct more carefully.
-        let mut g = Grid::new();
-        for ch in "1223434455".chars() {
-            let col = (ch as u8 - b'1') as usize;
-            assert!(g.drop(col));
-        }
-        // Independent grid agrees with bitboard cells.
-        for col in 0..WIDTH {
-            for row in 0..HEIGHT {
-                assert_eq!(p.cell(row, col), g.cell(row, col), "r{row} c{col}");
-            }
-        }
+        // Rising diagonal for P1 on (0,0), (1,1), (2,2), (3,3).
+        assert_eq!(p.play_seq("122353346447"), 12);
+        assert!(p.is_winning_move(3));
+        p.play_col(3);
+        assert!(p.last_player_won());
     }
 
     #[test]
