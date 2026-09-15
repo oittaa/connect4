@@ -306,7 +306,7 @@ impl Solver {
     pub fn solve(&mut self, pos: Position) -> SolveResult {
         self.reset_nodes();
         self.begin_clock();
-        let (score, from_score_book) = self.score_position(pos, false);
+        let (score, from_score_book) = self.score_position(pos);
         SolveResult {
             score,
             nodes: self.nodes,
@@ -316,20 +316,7 @@ impl Solver {
         }
     }
 
-    pub fn solve_weak(&mut self, pos: Position) -> SolveResult {
-        self.reset_nodes();
-        self.begin_clock();
-        let (score, from_score_book) = self.score_position(pos, true);
-        SolveResult {
-            score,
-            nodes: self.nodes,
-            micros: self.elapsed_micros(),
-            timed_out: self.timed_out,
-            from_score_book,
-        }
-    }
-
-    fn score_position(&mut self, pos: Position, weak: bool) -> (i32, bool) {
+    fn score_position(&mut self, pos: Position) -> (i32, bool) {
         if let Some(s) = self.score_book_score(&pos) {
             return (s, true);
         }
@@ -343,10 +330,6 @@ impl Solver {
 
         let mut min = -((AREA as i32 - pos.moves() as i32) / 2);
         let mut max = (AREA as i32 + 1 - pos.moves() as i32) / 2;
-        if weak {
-            min = -1;
-            max = 1;
-        }
 
         while min < max {
             if self.timed_out {
@@ -365,7 +348,7 @@ impl Solver {
                 min = r;
             }
         }
-        if !self.timed_out && !weak {
+        if !self.timed_out {
             self.proven.insert_score(self.tt_key(&pos), min as i8);
         }
         (min, false)
@@ -402,7 +385,7 @@ impl Solver {
             // Aborted search returns a bound, not an exact child score. Leave
             // this column and later ones invalid instead of displaying that
             // bound as a proven win, loss, or draw.
-            let (s, _) = self.score_position(child, false);
+            let (s, _) = self.score_position(child);
             if self.timed_out {
                 break;
             }
@@ -420,7 +403,7 @@ impl Solver {
         }
         self.reset_nodes();
         self.begin_clock();
-        let (target, from_score_book) = self.score_position(pos, false);
+        let (target, from_score_book) = self.score_position(pos);
         let mut scores = [INVALID_MOVE; WIDTH];
         let mut best_col = None;
         for &col in &COLUMN_ORDER {
@@ -786,14 +769,6 @@ pub fn winning_move_number(score: i32) -> Option<u8> {
     }
     let s = score.abs();
     Some((AREA as i32 - 2 * s + 1) as u8)
-}
-
-pub fn outcome_label(score: i32) -> &'static str {
-    match score.cmp(&0) {
-        std::cmp::Ordering::Greater => "win",
-        std::cmp::Ordering::Less => "loss",
-        std::cmp::Ordering::Equal => "draw",
-    }
 }
 
 #[cfg(test)]
