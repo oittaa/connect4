@@ -196,12 +196,7 @@ mod tests {
         let b2 = ScoreBook::load(&bytes).unwrap();
         assert_eq!(b2.depth(), 2);
         assert_eq!(b2.len(), 3);
-        let mut p = Position::new();
-        // empty key is 0, not in book
-        assert!(b2.get(&p).is_none());
-        p.play_col(3);
-        // just checks load/save integrity
-        let b3 = ScoreBook::load(&bytes).unwrap();
-        assert_eq!(b3.save(), bytes);
+        assert!(b2.get(&Position::new()).is_none());
+        assert_eq!(ScoreBook::load(&bytes).unwrap().save(), bytes);
     }
 }

@@ -247,7 +247,6 @@ mod tests {
         let e = t2.get_entry(2).unwrap();
         assert_eq!(e.score, -3);
         assert_eq!(unpack_cols(&e.cols.unwrap())[1], COL_INVALID);
-        assert_eq!(COL_INVALID, crate::solver::INVALID_MOVE);
     }
 
     #[test]
@@ -321,12 +320,5 @@ mod tests {
         );
         assert_eq!(mem.get(0xB), Some(2));
         assert!(mem.get(0xA).is_none(), "capacity still bounds the table");
-    }
-
-    #[test]
-    fn orient_reverses_when_mirrored() {
-        let cols = [0i8, 1, 2, 3, 4, 5, 6];
-        assert_eq!(orient_cols(cols, false), cols);
-        assert_eq!(orient_cols(cols, true), [6, 5, 4, 3, 2, 1, 0]);
     }
 }

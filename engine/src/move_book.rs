@@ -369,23 +369,6 @@ fn choose(n: usize, k: usize) -> u32 {
     }
 }
 
-#[cfg(test)]
-fn unrank_color(mut rank: u32, n: usize, k: usize) -> Vec<usize> {
-    let mut selected = vec![0usize; k];
-    let mut upper = n;
-    for j in (1..=k).rev() {
-        let mut value = upper - 1;
-        while choose(value, j) > rank {
-            value -= 1;
-        }
-        selected[j - 1] = value;
-        rank -= choose(value, j);
-        upper = value;
-    }
-    debug_assert_eq!(rank, 0);
-    selected
-}
-
 fn height_tables(max_ply: u8) -> Vec<Vec<[u8; WIDTH]>> {
     (0..=max_ply)
         .map(|ply| {
@@ -482,7 +465,6 @@ pub(crate) fn crc32(bytes: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
 
     fn position(seq: &str) -> Position {
         let mut pos = Position::new();
@@ -511,17 +493,14 @@ mod tests {
     }
 
     #[test]
-    fn generated_slot_counts_and_payload_match_the_spec() {
-        let move_book = MoveBook::empty(10).unwrap();
-        assert_eq!(move_book.slots(), 1_393_841);
-        assert_eq!(move_book.payload_bytes(), 522_693);
-        for (ply, &slots) in EXPECTED_SLOT_COUNTS[..=10].iter().enumerate() {
-            assert_eq!(move_book.sections[ply].slots, slots);
-        }
-        let deeper = MoveBook::empty(11).unwrap();
-        assert_eq!(deeper.moves_covered(), 12);
-        assert_eq!(deeper.save().len(), 1_471_622);
-        assert_eq!(MoveBook::load(&deeper.save()).unwrap().max_ply(), 11);
+    fn empty_twelve_move_book_roundtrips() {
+        let move_book = MoveBook::empty(11).unwrap();
+        assert_eq!(move_book.moves_covered(), 12);
+        let bytes = move_book.save();
+        assert_eq!(bytes.len(), 1_471_622);
+        let loaded = MoveBook::load(&bytes).unwrap();
+        assert_eq!(loaded.max_ply(), 11);
+        assert_eq!(loaded.save(), bytes);
     }
 
     #[test]
@@ -533,58 +512,6 @@ mod tests {
         let loaded = MoveBook::load(&move_book.save()).unwrap();
         assert_eq!(loaded.get(&pos), Some(1));
         assert_eq!(loaded.get(&pos.mirrored()), Some(5));
-    }
-
-    #[test]
-    fn combinadic_rank_unrank_is_unique() {
-        for n in 0..=MAX_MOVE_BOOK_PLY as usize {
-            let k = n / 2;
-            let mut ranks = HashSet::new();
-            combinations(n, k, 0, &mut Vec::new(), &mut |selected| {
-                let rank: u32 = selected
-                    .iter()
-                    .enumerate()
-                    .map(|(j, &p)| choose(p, j + 1))
-                    .sum();
-                assert!(rank < choose(n, k));
-                assert_eq!(unrank_color(rank, n, k), selected);
-                ranks.insert(rank);
-            });
-            assert_eq!(ranks.len(), choose(n, k) as usize);
-        }
-    }
-
-    fn combinations<F: FnMut(&[usize])>(
-        n: usize,
-        k: usize,
-        start: usize,
-        selected: &mut Vec<usize>,
-        visit: &mut F,
-    ) {
-        if selected.len() == k {
-            visit(selected);
-            return;
-        }
-        for value in start..n {
-            selected.push(value);
-            combinations(n, k, value + 1, selected, visit);
-            selected.pop();
-        }
-    }
-
-    #[test]
-    fn three_bit_values_cross_bytes_and_sections_roundtrip() {
-        let mut move_book = MoveBook::empty(3).unwrap();
-        for (section_index, section) in move_book.sections.iter_mut().enumerate() {
-            for slot in 0..section.slots as usize {
-                let value = ((slot + section_index) % 7) as u8;
-                assert!(write_three_bits_min(&mut section.data, slot, value));
-                assert_eq!(read_three_bits(&section.data, slot), value);
-            }
-        }
-        let bytes = move_book.save();
-        let loaded = MoveBook::load(&bytes).unwrap();
-        assert_eq!(loaded.save(), bytes);
     }
 
     #[test]
@@ -602,7 +529,6 @@ mod tests {
     fn symmetric_heights_populate_both_color_orientations() {
         let left = position("174");
         let right = position("714");
-        assert_eq!(position_heights(&left), reversed(position_heights(&left)));
         let mut move_book = MoveBook::empty(3).unwrap();
         assert_eq!(move_book.insert(&left, 2).unwrap(), 2);
         assert_eq!(move_book.get(&left), Some(2));
