@@ -53,12 +53,26 @@ test("book labels count moves supplied and reset after unloading", async ({ page
   await openApp(page);
   const books = page.locator("#books-line");
   await expect(books).toContainText(/Score book .*\(through move 8\)/);
-  await expect(books).toContainText(/move book .*\(through move 10\)/);
+  await expect(books).toContainText(/move book .*\(through move 12\)/);
   await expect(books).not.toContainText("depth");
   await page.locator("#books").uncheck();
   await expect(books).toContainText(/Score book .*\(through move 4\)/);
   await expect(books).toContainText("move book not loaded");
 });
+
+for (const moves of ["4444422234", "44444222345"]) {
+  test(`move ${moves.length + 1} comes from the downloaded move book without search`, async ({ page }) => {
+    await openApp(page, moves);
+    await expect(page.locator("#books-line")).toContainText(/move book .*\(through move 12\)/);
+    await setRole(page, moves.length % 2, "perfect");
+    await expect(page.locator(".disc")).toHaveCount(moves.length + 1);
+    const result = await page.evaluate(() => (window as any).hintTest.replies.find((r: any) => r.type === "moved"));
+    expect(result.fromMoveBook).toBe(true);
+    expect(result.nodes).toBe(0);
+    expect(result.timedOut).toBe(false);
+    expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
+  });
+}
 
 for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
   test(`board stays fixed through hints and human/computer turns at ${viewport.width}px`, async ({ page }) => {
