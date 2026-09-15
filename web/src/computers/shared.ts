@@ -20,15 +20,11 @@ export function legalEngineColumn(col: number): boolean {
   return col >= 0 && col < WIDTH;
 }
 
-/**
- * Immediate win/block, else uniform among legal columns. Center-first order
- * `[3, 4, 2, 5, 1, 6, 0]` so `random() === 0` maps to column 3.
- */
+/** Immediate win/block, else uniform among legal columns. */
 export function fallbackColumn(moves: number[], random: () => number): number | null {
   const forced = forcedWinOrBlock(moves);
   if (forced !== null) return forced;
   const legal = legalCols(playMoves(moves));
   if (legal.length === 0) return null;
-  const order = [3, 4, 2, 5, 1, 6, 0].filter((c) => legal.includes(c));
-  return order[Math.floor(random() * order.length)] ?? legal[0];
+  return legal[Math.floor(random() * legal.length)] ?? legal[0];
 }

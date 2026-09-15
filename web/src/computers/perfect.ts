@@ -3,7 +3,7 @@ import { bestCols } from "../game.ts";
 import type { SolverMove } from "./shared.ts";
 
 /** Sample uniformly among complete best-column scores; otherwise keep the engine column. */
-export function pickPerfect(
+function pickPerfect(
   engineCol: number,
   moveScores: CompleteColumnScores | null,
   random: () => number,

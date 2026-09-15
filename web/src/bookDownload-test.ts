@@ -1,13 +1,6 @@
 // Opening-book download deadlines. Run: npm test
 
-import {
-  BOOK_DOWNLOAD_DEADLINE_MS,
-  fetchBookWithDeadline,
-  isAbortError,
-  isBookDownloadTimeout,
-  type BookFetch,
-  type BookResponse,
-} from "./bookDownload.ts";
+import { fetchBookWithDeadline, isAbortError, type BookFetch, type BookResponse } from "./bookDownload.ts";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -63,12 +56,16 @@ function stalledBody(): BookFetch {
   });
 }
 
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "BookDownloadTimeoutError";
+}
+
 async function expectTimeout(p: Promise<ArrayBuffer>, label: string): Promise<void> {
   try {
     await p;
     throw new Error(`${label}: expected timeout`);
   } catch (error) {
-    assert(isBookDownloadTimeout(error), `${label}: expected timeout, got ${String(error)}`);
+    assert(isTimeout(error), `${label}: expected timeout, got ${String(error)}`);
     assert(
       error instanceof Error && error.message === `${label} download timed out`,
       `${label}: timeout message`,
@@ -84,7 +81,7 @@ async function expectTimeout(p: Promise<ArrayBuffer>, label: string): Promise<vo
     timer,
   });
   assert(timer.pending === 1, "stalled headers start a timer");
-  assert(timer.delays[0] === BOOK_DOWNLOAD_DEADLINE_MS, "deadline is 60s");
+  assert(timer.delays[0] === 60_000, "deadline is 60s");
   timer.fireAll();
   await expectTimeout(p, "Score book");
   assert(timer.pending === 0, "stalled-headers timer is cleared");
@@ -140,7 +137,7 @@ async function expectTimeout(p: Promise<ArrayBuffer>, label: string): Promise<vo
     throw new Error("Off should cancel");
   } catch (error) {
     assert(isAbortError(error), "Off is AbortError");
-    assert(!isBookDownloadTimeout(error), "Off around expiry is not a timeout");
+    assert(!isTimeout(error), "Off around expiry is not a timeout");
   }
   assert(timer.pending === 0, "Off clears the timer before expiry");
   timer.fireAll();
@@ -159,7 +156,7 @@ async function expectTimeout(p: Promise<ArrayBuffer>, label: string): Promise<vo
   firstUser.abort();
   await first.catch((error) => {
     assert(isAbortError(error), "first Off/on attempt is cancelled");
-    assert(!isBookDownloadTimeout(error), "first attempt is not a timeout");
+    assert(!isTimeout(error), "first attempt is not a timeout");
   });
   assert(timer.pending === 0, "first attempt leaves no timer for the retry");
 
@@ -171,7 +168,7 @@ async function expectTimeout(p: Promise<ArrayBuffer>, label: string): Promise<vo
     timer,
   });
   assert(timer.pending === 1, "Off then On starts a fresh 60s timer");
-  assert(timer.delays[1] === BOOK_DOWNLOAD_DEADLINE_MS, "retry uses the same deadline");
+  assert(timer.delays[1] === 60_000, "retry uses the same deadline");
   timer.fireAll();
   await expectTimeout(second, "Score book");
   assert(timer.pending === 0, "retry timeout clears its own timer");
@@ -194,7 +191,7 @@ async function expectTimeout(p: Promise<ArrayBuffer>, label: string): Promise<vo
     throw new Error("expected cancellation");
   } catch (error) {
     assert(isAbortError(error), "Off wins if it races the deadline");
-    assert(!isBookDownloadTimeout(error), "deadline must not overwrite Off");
+    assert(!isTimeout(error), "deadline must not overwrite Off");
   }
   assert(timer.pending === 0, "Off/on around body expiry clears timers");
 }
@@ -213,7 +210,7 @@ async function expectTimeout(p: Promise<ArrayBuffer>, label: string): Promise<vo
     });
     throw new Error("expected HTTP failure");
   } catch (error) {
-    assert(!isBookDownloadTimeout(error), "HTTP failure is not a timeout");
+    assert(!isTimeout(error), "HTTP failure is not a timeout");
     assert(
       error instanceof Error && error.message === "Score book download failed (404)",
       "HTTP failure keeps the existing DEBUG wording",

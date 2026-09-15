@@ -11,7 +11,6 @@ import {
 } from "./shared.ts";
 
 export type { ComputerPlan, ComputerPolicy, SolverMove };
-export { mediumMove, pickMedium } from "./medium.ts";
 
 export const computers = {
   easy,

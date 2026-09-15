@@ -1,14 +1,9 @@
 // Worker transport checks. Run: npm test
 
-import {
-  createEngineClient,
-  SOLVER_TRANSPORT_ERROR,
-  WORKER_REPLACED,
-  isBlockingCompute,
-  isWorkerReplaced,
-  type EnginePort,
-} from "./engineClient.ts";
+import { createEngineClient, WORKER_REPLACED, isBlockingCompute, isWorkerReplaced, type EnginePort } from "./engineClient.ts";
 import type { WorkerReq, WorkerRes } from "./engineProtocol.ts";
+
+const SOLVER_TRANSPORT_ERROR = "The solver stopped unexpectedly.";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);

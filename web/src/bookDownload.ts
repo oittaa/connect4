@@ -1,8 +1,8 @@
 /** Independent opening-book download deadline, including the response body. */
 
-export const BOOK_DOWNLOAD_DEADLINE_MS = 60_000;
+const BOOK_DOWNLOAD_DEADLINE_MS = 60_000;
 
-export class BookDownloadTimeoutError extends Error {
+class BookDownloadTimeoutError extends Error {
   readonly timedOut = true as const;
 
   constructor(label: string) {
@@ -13,10 +13,6 @@ export class BookDownloadTimeoutError extends Error {
 
 export function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
-}
-
-export function isBookDownloadTimeout(error: unknown): boolean {
-  return error instanceof BookDownloadTimeoutError;
 }
 
 export type BookResponse = {
@@ -59,7 +55,7 @@ function whenAborted(signal: AbortSignal): Promise<never> {
 }
 
 /** Combine timeout and Off/cancellation without requiring AbortSignal.any. */
-export function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
+function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
   const live = signals.filter((signal) => signal);
   if (live.length === 1) return live[0];
   const controller = new AbortController();

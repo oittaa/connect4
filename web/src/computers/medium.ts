@@ -14,11 +14,11 @@ import {
 import type { SolverMove } from "./shared.ts";
 
 /** Probability Medium keeps the engine/book column when scores are unavailable. */
-export const MEDIUM_KEEP_BEST = 0.82;
+const MEDIUM_KEEP_BEST = 0.82;
 const MEDIUM_SECOND_BEST = 0.28;
 
 /** True if playing `col` leaves the opponent an immediate winning drop. */
-export function givesOpponentImmediateWin(g: Grid, col: number, player: Player): boolean {
+function givesOpponentImmediateWin(g: Grid, col: number, player: Player): boolean {
   const opp = (3 - player) as Player;
   const row = g.height[col];
   if (row >= HEIGHT) return true;
@@ -33,7 +33,7 @@ export function givesOpponentImmediateWin(g: Grid, col: number, player: Player):
   return hang;
 }
 
-export function mediumMove(scores: number[], random: () => number = Math.random): number | null {
+function mediumMove(scores: number[], random: () => number = Math.random): number | null {
   const valid: { s: number; c: number }[] = [];
   for (let c = 0; c < scores.length; c++) {
     if (scores[c] !== INVALID) valid.push({ s: scores[c], c });
@@ -49,7 +49,7 @@ export function mediumMove(scores: number[], random: () => number = Math.random)
  * Medium: take wins/blocks, then rank from complete move scores, else
  * keep the engine column most of the time or leak to a non-losing legal drop.
  */
-export function pickMedium(
+function pickMedium(
   moves: number[],
   engineCol: number,
   moveScores: CompleteColumnScores | null,
