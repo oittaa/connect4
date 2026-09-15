@@ -31,7 +31,6 @@ pub struct Solver {
     check_counter: u32,
     timeout_ms: u32,
     max_nodes: u64,
-    mirror: bool,
     #[cfg(not(target_arch = "wasm32"))]
     tt_log: u32,
     move_book_hit: bool,
@@ -64,7 +63,6 @@ impl Solver {
             check_counter: 0,
             timeout_ms: 0,
             max_nodes: 0,
-            mirror: true,
             #[cfg(not(target_arch = "wasm32"))]
             tt_log: log_size,
             move_book_hit: false,
@@ -92,23 +90,6 @@ impl Solver {
 
     pub fn move_book_hit(&self) -> bool {
         self.move_book_hit
-    }
-
-    pub fn set_mirror(&mut self, on: bool) {
-        self.mirror = on;
-    }
-
-    pub fn mirror(&self) -> bool {
-        self.mirror
-    }
-
-    #[inline(always)]
-    fn tt_key(&self, pos: &Position) -> u64 {
-        if self.mirror {
-            pos.canonical_key()
-        } else {
-            pos.key()
-        }
     }
 
     pub fn set_timeout_ms(&mut self, ms: u32) {
@@ -230,7 +211,7 @@ impl Solver {
         if self.proven.is_empty() {
             None
         } else {
-            self.proven.get(self.tt_key(pos))
+            self.proven.get(pos.canonical_key())
         }
     }
 
@@ -343,7 +324,7 @@ impl Solver {
             }
         }
         if !self.timed_out {
-            self.proven.insert_score(self.tt_key(&pos), min as i8);
+            self.proven.insert_score(pos.canonical_key(), min as i8);
         }
         (min, false)
     }
@@ -358,7 +339,7 @@ impl Solver {
         if !self.timed_out {
             if let Some(s) = best_of(&scores) {
                 let cols = orient_cols(pack_cols(&scores), pos.is_mirrored());
-                self.proven.insert(self.tt_key(&pos), s as i8, Some(cols));
+                self.proven.insert(pos.canonical_key(), s as i8, Some(cols));
             }
         }
         scores
@@ -441,7 +422,7 @@ impl Solver {
                 scores[col] = target;
                 if !exact {
                     self.proven
-                        .insert_score(self.tt_key(&child), (-target) as i8);
+                        .insert_score(child.canonical_key(), (-target) as i8);
                 }
                 best_col = Some(col);
                 break;
@@ -516,7 +497,7 @@ impl Solver {
             return s;
         }
 
-        let key = self.tt_key(&pos);
+        let key = pos.canonical_key();
         if let Some((val, flag)) = self.tt.get(key) {
             if flag == FLAG_LOWER {
                 if alpha < val {
@@ -648,7 +629,6 @@ impl Solver {
         let shared_score_book = Arc::new(Mutex::new(std::mem::take(score_book)));
         let on_change = Arc::new(Mutex::new(on_change));
         let tt_log = self.tt_log;
-        let mirror = self.mirror;
         let seed = self.score_book.clone();
 
         std::thread::scope(|scope| {
@@ -659,7 +639,6 @@ impl Solver {
                 let seed = seed.clone();
                 scope.spawn(move || {
                     let mut solver = Solver::with_tt_log(tt_log);
-                    solver.set_mirror(mirror);
                     solver.set_score_book(seed);
                     loop {
                         let job = {
