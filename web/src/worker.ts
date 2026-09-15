@@ -56,16 +56,10 @@ async function loadPersisted(eng: WasmEngine): Promise<void> {
   if (buf && buf.length >= 12) eng.cacheLoad(buf);
 }
 
-function readHit(
-  hit: Int16Array,
-  needCols: boolean,
-): { score: number; scores?: number[] } | undefined {
-  if (hit.length < 1) return;
-  if (needCols && hit.length < 8) return;
-  return {
-    score: hit[0],
-    scores: hit.length >= 8 ? Array.from(hit.subarray(1, 8)) : undefined,
-  };
+/** Proven cache hit with seven column scores (`[score, c0..c6]`). */
+function readHit(hit: Int16Array): number[] | undefined {
+  if (hit.length < 8) return;
+  return Array.from(hit.subarray(1, 8));
 }
 
 function ready(id: number, eng: WasmEngine): WorkerRes {
@@ -111,8 +105,8 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "availableScores": {
         // Read-only hints for active computers, including JS-only Easy moves.
         const moves = u8(msg.moves);
-        const hit = readHit(engine.cacheGet(moves), true);
-        const cached = hit?.scores ? completeMoveScores(hit.scores, msg.moves) : null;
+        const hit = readHit(engine.cacheGet(moves));
+        const cached = hit ? completeMoveScores(hit, msg.moves) : null;
         reply({
           id: msg.id,
           type: "availableScores",
@@ -122,12 +116,12 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       }
       case "analyze": {
         const moves = u8(msg.moves);
-        const hit = readHit(engine.cacheGet(moves), true);
-        if (hit?.scores) {
+        const hit = readHit(engine.cacheGet(moves));
+        if (hit) {
           reply({
             id: msg.id,
             type: "analyzed",
-            scores: hit.scores,
+            scores: hit,
             nodes: 0,
             micros: 0,
             timedOut: false,
@@ -153,8 +147,8 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       }
       case "bestMove": {
         const moves = u8(msg.moves);
-        const hit = readHit(engine.cacheGet(moves), true);
-        const cached = hit?.scores ? completeMoveScores(hit.scores, msg.moves) : null;
+        const hit = readHit(engine.cacheGet(moves));
+        const cached = hit ? completeMoveScores(hit, msg.moves) : null;
         if (cached) {
           reply({
             id: msg.id,

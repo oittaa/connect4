@@ -2,10 +2,10 @@
 
 import {
   computers,
-  executeComputer,
   mediumMove,
   pickMedium,
   planComputer,
+  resolveSolverColumn,
   type ComputerId,
 } from "./computers/index.ts";
 import {
@@ -48,7 +48,10 @@ function afterEngine(
   moveScores: CompleteColumnScores | null,
   random: () => number,
 ): number | null {
-  return executeComputer(computers[id], moves, random, { col: engineCol, moveScores });
+  const plan = planComputer(computers[id], moves, random);
+  if (plan === null) return null;
+  if (plan.type === "local") return plan.col;
+  return resolveSolverColumn(plan.choose, { col: engineCol, moveScores }, moves, random);
 }
 
 const emptyScores: CompleteColumnScores = [-2, -1, 0, 1, 0, -1, -2];

@@ -40,8 +40,9 @@ export function planComputer(
 }
 
 /**
- * Turn a solver reply into a column. Out-of-range results fall back to a
- * legal tactical/uniform column. Does not treat a solver failure as a move.
+ * Turn a solver reply into a column. `null` from `choose` means no move.
+ * Out-of-range results fall back to a legal tactical/uniform column. Does not
+ * treat a solver failure as a move.
  */
 export function resolveSolverColumn(
   choose: (reply: SolverMove) => number | null,
@@ -49,21 +50,9 @@ export function resolveSolverColumn(
   moves: number[],
   random: () => number = Math.random,
 ): number | null {
-  let col = choose(reply);
-  if (col === null || !legalEngineColumn(col)) col = fallbackColumn(moves, random) ?? col;
-  return col !== null && legalEngineColumn(col) ? col : null;
-}
-
-/** Generic executor for local plans or a solver reply. Independent of computer ids. */
-export function executeComputer(
-  policy: ComputerPolicy,
-  moves: number[],
-  random: () => number,
-  reply?: SolverMove,
-): number | null {
-  const plan = planComputer(policy, moves, random);
-  if (plan === null) return null;
-  if (plan.type === "local") return plan.col;
-  if (!reply) return null;
-  return resolveSolverColumn(plan.choose, reply, moves, random);
+  const col = choose(reply);
+  if (col === null) return null;
+  if (legalEngineColumn(col)) return col;
+  const fallback = fallbackColumn(moves, random);
+  return fallback !== null && legalEngineColumn(fallback) ? fallback : null;
 }

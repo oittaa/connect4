@@ -2,7 +2,8 @@
 
 import {
   computers,
-  executeComputer,
+  planComputer,
+  resolveSolverColumn,
   seatFromFormValue,
   type ComputerPolicy,
   type SolverMove,
@@ -14,6 +15,19 @@ function assert(cond: boolean, msg: string): void {
 
 function same(got: unknown, expected: unknown, msg: string): void {
   assert(JSON.stringify(got) === JSON.stringify(expected), `${msg}: got ${JSON.stringify(got)}`);
+}
+
+function play(
+  policy: ComputerPolicy,
+  moves: number[],
+  random: () => number,
+  reply?: SolverMove,
+): number | null {
+  const plan = planComputer(policy, moves, random);
+  if (plan === null) return null;
+  if (plan.type === "local") return plan.col;
+  if (!reply) return null;
+  return resolveSolverColumn(plan.choose, reply, moves, random);
 }
 
 same(Object.keys(computers), ["easy", "medium", "perfect"], "registry order");
@@ -35,8 +49,8 @@ const alwaysCenter: ComputerPolicy = {
     return { type: "local", col: 3 };
   },
 };
-assert(executeComputer(alwaysCenter, [], () => 0) === 3, "unknown policy can play a local column");
-assert(executeComputer(alwaysCenter, [0, 1, 0, 2, 0, 3, 0], () => 0) === null, "terminal position has no move");
+assert(play(alwaysCenter, [], () => 0) === 3, "unknown policy can play a local column");
+assert(play(alwaysCenter, [0, 1, 0, 2, 0, 3, 0], () => 0) === null, "terminal position has no move");
 
 const fromReply: ComputerPolicy = {
   label: "Test",
@@ -48,13 +62,18 @@ const fromReply: ComputerPolicy = {
   },
 };
 assert(
-  executeComputer(fromReply, [], () => 0, { col: 1, moveScores: null }) === 1,
+  play(fromReply, [], () => 0, { col: 1, moveScores: null }) === 1,
   "solver test policy uses the reply column",
 );
 assert(
-  executeComputer(fromReply, [], () => 0, { col: 255, moveScores: null }) === 3,
+  play(fromReply, [], () => 0, { col: 255, moveScores: null }) === 3,
   "invalid solver column uses the shared fallback",
 );
-assert(executeComputer(fromReply, [], () => 0) === null, "solver policy without a reply does not invent a move");
+assert(play(fromReply, [], () => 0) === null, "solver policy without a reply does not invent a move");
+
+assert(
+  resolveSolverColumn(() => null, { col: 3, moveScores: null }, [], () => 0) === null,
+  "choose: () => null must not become column 3",
+);
 
 console.log("computer registry checks ok");
