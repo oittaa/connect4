@@ -1,19 +1,21 @@
 // Deterministic Medium and computer-turn policy checks. Run: npm test
 
 import {
+  chooseAfterEngine,
+  mediumMove,
+  pickMedium,
+  planComputerTurn,
+} from "./computers/index.ts";
+import {
   INVALID,
   analysisComplete,
   analysisProven,
   analysisScoreClass,
-  chooseAfterEngine,
   completeMoveScores,
   forcedWinOrBlock,
   formatScore,
   isDraw,
   lastMoveWin,
-  mediumMove,
-  pickMedium,
-  planComputerTurn,
   playMoves,
   provenBestColumns,
   statusText,

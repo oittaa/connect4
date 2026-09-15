@@ -1,10 +1,10 @@
 // Hints vs computer-turn scheduling. Run: npm test
 
+import { planComputerTurn } from "./computers/index.ts";
 import {
   analysisReplyApplies,
   forcedWinOrBlock,
   isActiveComputerTurn,
-  planComputerTurn,
   planHintAndComputer,
   shouldRequestAnalysis,
   shouldRequestAvailableScores,
