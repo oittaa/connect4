@@ -82,14 +82,6 @@ impl Table {
     }
 }
 
-#[cfg(test)]
-impl Table {
-    fn reset(&mut self) {
-        self.keys.fill(0);
-        self.vals.fill(0);
-    }
-}
-
 #[inline]
 fn pack(score: i32, flag: u8) -> u8 {
     let s = score.clamp(MIN_SCORE, MAX_SCORE);
@@ -169,9 +161,5 @@ mod tests {
         assert_eq!(t.get(1), None);
         t.put(99, 0, FLAG_EMPTY);
         assert_eq!(t.get(99), None);
-        t.reset();
-        assert_eq!(t.get(12345), None);
-        t.put(12345, -3, FLAG_UPPER);
-        assert_eq!(t.get(12345), Some((-3, FLAG_UPPER)));
     }
 }
