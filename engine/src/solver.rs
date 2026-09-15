@@ -860,6 +860,10 @@ mod tests {
         // Only the interrupted parent search should visit a node.
         assert_eq!(result.nodes, 1);
         assert_eq!(scores, [INVALID_MOVE; WIDTH]);
+        solver.reset();
+        let retry = solver.solve(pos);
+        assert!(retry.timed_out);
+        assert!(retry.nodes > 0);
     }
 
     #[test]
