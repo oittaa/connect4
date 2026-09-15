@@ -1,10 +1,9 @@
 // Deterministic Medium and computer-turn policy checks. Run: npm test
 
 import { computers, planComputer, resolveSolverColumn, type ComputerId } from "./computers/index.ts";
+import type { CompleteColumnScores } from "./engineProtocol.ts";
 import {
   INVALID,
-  analysisComplete,
-  analysisProven,
   analysisScoreClass,
   completeMoveScores,
   forcedWinOrBlock,
@@ -14,7 +13,6 @@ import {
   playMoves,
   provenBestColumns,
   statusText,
-  type CompleteColumnScores,
 } from "./game.ts";
 
 function assert(cond: boolean, msg: string): void {
@@ -144,15 +142,6 @@ assert(
 const emptyHeights = playMoves([]).height;
 const timeoutLookalike = [1, 0, 10, 10, -2, -2, -2];
 const timeoutPartial = [INVALID, 0, 10, 10, -2, -2, -2];
-assert(analysisComplete(timeoutLookalike, emptyHeights), "seven exact scores look complete");
-assert(analysisComplete(timeoutPartial, emptyHeights) === false, "unfinished column is incomplete");
-assert(analysisComplete(fullColScores, playMoves(fullCol).height), "full-column sentinel is complete");
-assert(analysisProven(timeoutLookalike, emptyHeights, true) === false, "timedOut complete array is not proven");
-assert(analysisProven(timeoutPartial, emptyHeights, false) === false, "partial array is not proven");
-assert(analysisProven(timeoutPartial, emptyHeights, true) === false, "timedOut partial is not proven");
-assert(analysisProven(emptyScores, emptyHeights, false), "completed analysis is proven");
-assert(analysisProven(fullColScores, playMoves(fullCol).height, false), "full-column sentinel can be proven");
-assert(analysisProven(fullColScores, playMoves(fullCol).height, true) === false, "timedOut full-column is not proven");
 same(provenBestColumns(timeoutLookalike, emptyHeights, true), [], "timedOut complete array has no best highlight");
 same(provenBestColumns(timeoutPartial, emptyHeights, false), [], "partial array has no best highlight");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 3), [2, 3], "a proven best-move column certifies equal exact scores");

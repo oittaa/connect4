@@ -5,8 +5,6 @@ export const HEIGHT = 6;
 export const AREA = WIDTH * HEIGHT;
 export const INVALID = -1000;
 
-export type { CompleteColumnScores };
-
 export type Player = 1 | 2;
 
 export interface Grid {
@@ -14,7 +12,7 @@ export interface Grid {
   height: number[];
 }
 
-export function emptyGrid(): Grid {
+function emptyGrid(): Grid {
   return {
     cells: Array.from({ length: HEIGHT }, () => Array(WIDTH).fill(0)),
     height: Array(WIDTH).fill(0),
@@ -31,7 +29,7 @@ export function playMoves(moves: number[]): Grid {
   return g;
 }
 
-export function drop(g: Grid, col: number, player: Player): number {
+function drop(g: Grid, col: number, player: Player): number {
   const row = g.height[col];
   if (row >= HEIGHT) return -1;
   g.cells[row][col] = player;
@@ -215,7 +213,7 @@ export function planHintAndComputer(
 }
 
 /** True if every legal column has an exact score. Ignores timeout. */
-export function analysisComplete(scores: ArrayLike<number>, heights: number[]): boolean {
+function analysisComplete(scores: ArrayLike<number>, heights: number[]): boolean {
   if (scores.length < WIDTH) return false;
   for (let c = 0; c < WIDTH; c++) {
     if (heights[c] < HEIGHT && scores[c] === INVALID) return false;
@@ -224,7 +222,7 @@ export function analysisComplete(scores: ArrayLike<number>, heights: number[]): 
 }
 
 /** Proven only when analysis finished without timeout and every legal column is exact. */
-export function analysisProven(
+function analysisProven(
   scores: ArrayLike<number>,
   heights: number[],
   timedOut: boolean,

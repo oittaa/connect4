@@ -5,7 +5,7 @@ type OmitId<T> = T extends unknown ? Omit<T, "id"> : never;
 export type EngineRequest = OmitId<WorkerReq>;
 
 /** Settled into pending requests on `error` / `messageerror`. */
-export const SOLVER_TRANSPORT_ERROR = "The solver stopped unexpectedly.";
+const SOLVER_TRANSPORT_ERROR = "The solver stopped unexpectedly.";
 
 /** Settled into pending requests when the worker is terminated for a replacement. */
 export const WORKER_REPLACED = "worker replaced";
