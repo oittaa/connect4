@@ -59,6 +59,7 @@ let moveBookAttempted = false;
 let delayMs = 400;
 let paused = false;
 let lastDropIndex = -1;
+let ttSavedForThisGame = false;
 
 const boardEl = document.getElementById("board")!;
 const scoresEl = document.getElementById("scores")!;
@@ -193,6 +194,17 @@ function gameOver(): boolean {
   return lastMoveWin(m) !== null || isDraw(m) || m.length >= AREA;
 }
 
+/** Persist the warm TT once per finished game, not on every turn or search. */
+function saveTTOnceOnGameOver(over: boolean): void {
+  if (!over) {
+    ttSavedForThisGame = false;
+    return;
+  }
+  if (ttSavedForThisGame || !engineReady) return;
+  ttSavedForThisGame = true;
+  void send({ type: "saveTT" });
+}
+
 function currentSeat(): Seat {
   return seats[toMove(played()) - 1];
 }
@@ -225,6 +237,7 @@ function renderBoard(animateLast: boolean): void {
   const win = lastMoveWin(m);
   const winSet = new Set((win ?? []).map(([r, c]) => `${r},${c}`));
   const over = gameOver();
+  saveTTOnceOnGameOver(over);
   const showHints = shouldShowHintDisplay(analyzeChk.checked, over);
   const computerTurn = isActiveComputerTurn(hintContext());
   const hints = computerTurn ? computerHints : analysis;
@@ -421,7 +434,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     renderBoard(false);
     return;
   }
-  reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache, r.fromMoveBook);
+  reportEngine(r.nodes, r.micros, r.timedOut, r.fromMoveBook);
   const col = resolveSolverColumn(turn.plan.choose, { col: r.col, moveScores: r.moveScores }, turn.moves);
   computerHintGeneration++;
   computerHints = r.hintScores.some((s) => s !== INVALID)
@@ -437,7 +450,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   }
 }
 
-/** Computer hints only read proven scores; they never delay the move for a search. */
+/** Computer hints only read already-known scores; they never delay the move for a search. */
 async function requestAvailableScores(): Promise<void> {
   if (!shouldRequestAvailableScores(hintContext())) return;
   const token = ++computerHintGeneration;
@@ -464,7 +477,7 @@ async function requestAnalyze(): Promise<void> {
   analyzing = false;
   if (r.type === "analyzed") {
     analysis = { scores: r.scores, timedOut: r.timedOut };
-    reportEngine(r.nodes, r.micros, r.timedOut, r.fromCache);
+    reportEngine(r.nodes, r.micros, r.timedOut);
   } else {
     engineLine.textContent = r.type === "error" ? r.message : "Analysis unavailable.";
   }
@@ -475,15 +488,10 @@ function reportEngine(
   nodes: number,
   micros: number,
   timedOut: boolean,
-  fromCache: boolean,
   fromMoveBook = false,
 ): void {
   const ms = micros / 1000;
   const nps = ms > 0 ? (nodes / ms) * 1000 : 0;
-  if (fromCache) {
-    engineLine.textContent = "cache hit";
-    return;
-  }
   if (fromMoveBook) {
     engineLine.textContent = "instant (move book)";
     return;
@@ -749,8 +757,7 @@ void send({
       engineLine.textContent =
         `Empty board: column ${res.col + 1} in ${dt.toFixed(0)} ms · ` +
         `${res.nodes.toLocaleString()} nodes` +
-        (res.timedOut ? " · TIMED OUT" : "") +
-        (res.fromCache ? " · cache" : "");
+        (res.timedOut ? " · TIMED OUT" : "");
     }
   }
 });

@@ -16,7 +16,8 @@ export type WorkerReq =
   | { id: number; type: "clearDownloadedBooks" }
   | { id: number; type: "analyze"; moves: number[] }
   | { id: number; type: "availableScores"; moves: number[] }
-  | { id: number; type: "bestMove"; moves: number[] };
+  | { id: number; type: "bestMove"; moves: number[] }
+  | { id: number; type: "saveTT" };
 
 export type WorkerRes =
   | { id: number; type: "availableScores"; scores: number[] }
@@ -35,7 +36,6 @@ export type WorkerRes =
       nodes: number;
       micros: number;
       timedOut: boolean;
-      fromCache: boolean;
     }
   | {
       id: number;
@@ -47,7 +47,7 @@ export type WorkerRes =
       nodes: number;
       micros: number;
       timedOut: boolean;
-      fromCache: boolean;
       fromMoveBook: boolean;
     }
+  | { id: number; type: "ttSaved" }
   | { id: number; type: "error"; message: string };

@@ -140,18 +140,17 @@ for (const seats of [[0, 1], [1, 0]]) {
   });
 }
 
-test("a computer can reuse proven cached scores beyond the opening books", async ({ page }) => {
+test("switching a human seat to a computer during play does not request another analyze", async ({ page }) => {
   await openApp(page, "122435527534575161761");
   await page.locator("#analyze").check();
   await expectScores(page);
   await expect(page.locator("#engine-line")).not.toContainText(/analyzing/i);
-  const scores = await page.locator("#scores span").allTextContents();
   await setRole(page, 1, "perfect");
-  await expect(page.locator("#scores span")).toHaveText(scores);
+  await expect.poll(() => page.evaluate(() => (window as any).hintTest.replies.some((r: any) => r.type === "moved"))).toBe(true);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
 });
 
-test("fresh late-game search scores are visible before each computer drops its disc", async ({ page }) => {
+test("perfect vs perfect keeps playing through late-game searches without extra analyze requests", async ({ page }) => {
   await openApp(page, "122435527534575161761");
   const box = await boardBox(page);
   await setRole(page, 0, "perfect");
@@ -161,24 +160,21 @@ test("fresh late-game search scores are visible before each computer drops its d
     await expect.poll(() => page.evaluate(() => (window as any).hintTest.replies.filter((r: any) => r.type === "moved").length)).toBe(turn + 1);
     const result = await page.evaluate(() => (window as any).hintTest.replies.filter((r: any) => r.type === "moved").at(-1));
     expect(result.timedOut).toBe(false);
-    expect(result.fromCache).toBe(false);
     if (turn === 0) expect(result.nodes).toBeGreaterThan(0);
-    const scores = result.hintScores.map((s: number) => s === -1000 ? "" : s === 0 ? "D" : s > 0 ? `W${s}` : `L${-s}`);
     await expect(page.locator(".disc")).toHaveCount(21 + turn);
-    await expect(page.locator("#scores span")).toHaveText(scores);
-    await expect(page.locator(`#board [data-col="${result.col}"]`)).toHaveClass(/best-col/);
     expect(await boardBox(page)).toEqual(box);
     await expect(page.locator(".disc")).toHaveCount(22 + turn, { timeout: 2500 });
   }
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
 });
 
-test("partial computer hints do not suppress full analysis after switching to Human", async ({ page }) => {
+test("switching a late-game computer back to Human still runs full analysis", async ({ page }) => {
   await openApp(page, "122435527534575161761");
   await setRole(page, 1, "perfect");
   await page.locator("#analyze").check();
-  await expect(page.locator('#board [data-col="3"]')).toHaveClass(/best-col/);
+  await expect.poll(() => page.evaluate(() => (window as any).hintTest.replies.some((r: any) => r.type === "moved"))).toBe(true);
   await setRole(page, 1, "human");
+  await expect(page.locator(".disc")).toHaveCount(21);
   await expectScores(page);
   await expect(page.locator("#scores span")).toHaveText(["L1", "D", "W10", "W10", "L2", "L2", "L2"]);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);

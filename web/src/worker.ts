@@ -1,9 +1,9 @@
 /// <reference lib="webworker" />
 /// <reference types="vite/client" />
 
-import { cacheLoad, cacheSave } from "./cache";
+import { loadTT, saveTT } from "./cache";
 import type { WorkerReq, WorkerRes } from "./engineProtocol";
-import { bestCols, completeMoveScores } from "./game";
+import { completeMoveScores } from "./game";
 import type { WasmEngine } from "./pkg/engine.js";
 
 let engine: WasmEngine | null = null;
@@ -19,47 +19,23 @@ function u8(moves: number[]): Uint8Array {
   return Uint8Array.from(moves);
 }
 
-let persistTimer = 0;
-let persisting: Promise<void> = Promise.resolve();
-
-function schedulePersist(eng: WasmEngine): void {
-  self.clearTimeout(persistTimer);
-  persistTimer = self.setTimeout(() => {
-    persisting = persisting.then(() => flush(eng)).catch((e) => {
-      console.error("proven cache save failed", e);
-    });
-  }, 500);
+/** Best-effort restore; a miss or any failure just starts with an empty table. */
+async function restoreTT(eng: WasmEngine): Promise<void> {
+  try {
+    const buf = await loadTT();
+    if (buf) eng.ttLoad(buf);
+  } catch (e) {
+    console.error("TT restore failed", e);
+  }
 }
 
-async function withCacheLock(fn: () => Promise<void>): Promise<void> {
-  const locks = (self as DedicatedWorkerGlobalScope).navigator.locks;
-  if (locks) await locks.request("c4-proven", fn);
-  else await fn();
-}
-
-async function flush(eng: WasmEngine): Promise<void> {
-  await withCacheLock(async () => {
-    const disk = await cacheLoad();
-    if (disk && disk.length >= 12) eng.cacheLoad(disk);
-    if (eng.cacheLen() === 0) return;
-    await cacheSave(new Uint8Array(eng.cacheSave()));
-  });
-}
-
-async function loadPersisted(eng: WasmEngine): Promise<void> {
-  // Startup is a pure read, so it must not take the "c4-proven" write lock:
-  // locks.request() has no timeout, so another tab holding it mid-flush would
-  // stall this worker's "ready" reply indefinitely. The IndexedDB open in
-  // cacheLoad() is itself bounded (OPEN_MS), and a concurrent flush only ever
-  // grows/merges the blob, so an unlocked read is safe.
-  const buf = await cacheLoad();
-  if (buf && buf.length >= 12) eng.cacheLoad(buf);
-}
-
-/** Proven cache hit with seven column scores (`[score, c0..c6]`). */
-function readHit(hit: Int16Array): number[] | undefined {
-  if (hit.length < 8) return;
-  return Array.from(hit.subarray(1, 8));
+/** Called once per finished game, not after every search. */
+async function persistTT(eng: WasmEngine): Promise<void> {
+  try {
+    await saveTT(new Uint8Array(eng.ttSave()));
+  } catch (e) {
+    console.error("TT save failed", e);
+  }
 }
 
 function ready(id: number, eng: WasmEngine): WorkerRes {
@@ -80,7 +56,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
     if (msg.type === "init") {
       if (!engine) engine = await boot();
       engine.setTimeoutMs(msg.timeoutMs);
-      await loadPersisted(engine);
+      await restoreTT(engine);
       reply(ready(msg.id, engine));
       return;
     }
@@ -105,71 +81,31 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "availableScores": {
         // Read-only hints for active computers, including JS-only Easy moves.
         const moves = u8(msg.moves);
-        const hit = readHit(engine.cacheGet(moves));
-        const cached = hit ? completeMoveScores(hit, msg.moves) : null;
         reply({
           id: msg.id,
           type: "availableScores",
-          scores: cached ?? Array.from(engine.knownColumnScores(moves)),
+          scores: Array.from(engine.knownColumnScores(moves)),
         });
         break;
       }
       case "analyze": {
         const moves = u8(msg.moves);
-        const hit = readHit(engine.cacheGet(moves));
-        if (hit) {
-          reply({
-            id: msg.id,
-            type: "analyzed",
-            scores: hit,
-            nodes: 0,
-            micros: 0,
-            timedOut: false,
-            fromCache: true,
-          });
-          break;
-        }
         const raw = Array.from(engine.analyze(moves));
-        const nodes = engine.nodeCount();
-        const micros = engine.micros();
-        const timedOut = engine.timedOut();
-        schedulePersist(engine);
         reply({
           id: msg.id,
           type: "analyzed",
           scores: raw,
-          nodes,
-          micros,
-          timedOut,
-          fromCache: false,
+          nodes: engine.nodeCount(),
+          micros: engine.micros(),
+          timedOut: engine.timedOut(),
         });
         break;
       }
       case "bestMove": {
         const moves = u8(msg.moves);
-        const hit = readHit(engine.cacheGet(moves));
-        const cached = hit ? completeMoveScores(hit, msg.moves) : null;
-        if (cached) {
-          reply({
-            id: msg.id,
-            type: "moved",
-            col: bestCols(cached)[0] ?? 255,
-            moveScores: cached,
-            hintScores: cached,
-            nodes: 0,
-            micros: 0,
-            timedOut: false,
-            fromCache: true,
-            fromMoveBook: false,
-          });
-          break;
-        }
         const col = engine.bestMove(moves);
         const nodes = engine.nodeCount();
         const micros = nodes === 0 ? 0 : engine.micros();
-        const timedOut = engine.timedOut();
-        const fromMoveBook = engine.moveBookHit();
-        if (!fromMoveBook) schedulePersist(engine);
         reply({
           id: msg.id,
           type: "moved",
@@ -178,12 +114,15 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           hintScores: Array.from(engine.knownColumnScores(moves)),
           nodes,
           micros,
-          timedOut,
-          fromCache: false,
-          fromMoveBook,
+          timedOut: engine.timedOut(),
+          fromMoveBook: engine.moveBookHit(),
         });
         break;
       }
+      case "saveTT":
+        await persistTT(engine);
+        reply({ id: msg.id, type: "ttSaved" });
+        break;
     }
   } catch (e) {
     reply({

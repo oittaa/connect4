@@ -20,7 +20,7 @@ async function expectCurrentAnalysis(page: Page): Promise<void> {
   await expect(scores).toHaveCount(7);
   await expect(scores.first()).not.toHaveText("…");
   await expect(scores.first()).toHaveText(/^(W\d+|L\d+|D)$/);
-  await expect(page.locator("#engine-line")).toHaveText(/instant|cache hit|search/i);
+  await expect(page.locator("#engine-line")).toHaveText(/instant|search/i);
   await expect(page.locator("#engine-line")).not.toHaveText(/analyzing/i);
   await expect(page.locator("#engine-line")).not.toHaveText(/^Solver ready/i);
 }
