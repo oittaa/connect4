@@ -39,7 +39,7 @@ assert(mediumMove(emptyScores, seq([0, 0])) === 2, "second-best first tie (colum
 assert(mediumMove(emptyScores, seq([0, 0.99])) === 4, "second-best last tie (column 5)");
 assert(mediumMove([], () => 0) === null, "no scores");
 
-const tiedBest = [0, 1, 1, 0, -1, -2, -2];
+const tiedBest: CompleteColumnScores = [0, 1, 1, 0, -1, -2, -2];
 assert(mediumMove(tiedBest, seq([0.99, 0])) === 1, "best-tier first tie");
 assert(mediumMove(tiedBest, seq([0.99, 0.99])) === 2, "best-tier last tie");
 
@@ -85,11 +85,20 @@ same(planComputerTurn("medium", hangSeq, () => 0), { type: "engine" }, "Medium h
 same(planComputerTurn("perfect", [], () => 0), { type: "engine" }, "Perfect asks the engine");
 same(planComputerTurn("perfect", winSeq, () => 0), { type: "engine" }, "Perfect does not take a local mate");
 
-assert(chooseAfterEngine("perfect", [], 3, emptyScores, () => 0) === 3, "Perfect keeps the engine column");
-assert(chooseAfterEngine("perfect", [], 2, emptyScores, seq([0.99, 0])) === 2, "Perfect does not use Medium ranks");
+assert(chooseAfterEngine("perfect", [], 3, emptyScores, () => 0) === 3, "Perfect unique best is the engine column");
+assert(chooseAfterEngine("perfect", [], 2, emptyScores, seq([0.99, 0])) === 3, "Perfect unique best ignores the engine column");
+assert(
+  chooseAfterEngine("perfect", [], 2, emptyScores, seq([0, 0])) === 3,
+  "Perfect unique best does not leak to second-best",
+);
 assert(chooseAfterEngine("medium", [], 2, emptyScores, seq([0.99, 0])) === 3, "Medium can ignore the engine column");
 assert(chooseAfterEngine("perfect", [], 3, null, () => 0) === 3, "Perfect ignores missing scores");
 assert(chooseAfterEngine("perfect", [], 255, null, seq([0])) === 3, "invalid Perfect column falls back to Easy");
+assert(chooseAfterEngine("perfect", [], 0, tiedBest, seq([0])) === 1, "Perfect first best-tier tie");
+assert(chooseAfterEngine("perfect", [], 0, tiedBest, seq([0.99])) === 2, "Perfect last best-tier tie");
+const allTie: CompleteColumnScores = [-1, -1, -1, -1, -1, -1, -1];
+assert(chooseAfterEngine("perfect", [], 0, allTie, () => 0) === 0, "Perfect all-tie first column");
+assert(chooseAfterEngine("perfect", [], 0, allTie, () => 0.99) === 6, "Perfect all-tie last column");
 assert(
   chooseAfterEngine("medium", [], 3, emptyScores, seq([0.99, 0])) === 3,
   "Medium score-book best after engine",
@@ -135,6 +144,7 @@ assert(
 const cached: CompleteColumnScores = [-1, 0, 1, 2, 1, 0, -1];
 same(completeMoveScores(cached, []), cached, "complete cached columns");
 assert(chooseAfterEngine("medium", [], 0, cached, seq([0.99, 0])) === 3, "chooser uses cached columns");
+assert(chooseAfterEngine("perfect", [], 0, cached, seq([0.99])) === 3, "Perfect uses cached unique best");
 
 const fullCol = [0, 0, 0, 0, 0, 0];
 const fullColScores: CompleteColumnScores = [INVALID, -1, 0, 1, 0, -1, -2];
