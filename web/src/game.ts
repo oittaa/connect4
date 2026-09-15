@@ -232,7 +232,8 @@ export function planComputerTurn(
 
 /**
  * Turn an engine reply into the column to play. Medium keeps its score-based
- * and fallback selection; Perfect keeps the engine column. An out-of-range
+ * and fallback selection; Perfect samples uniformly among `bestCols` when
+ * complete scores exist, otherwise keeps the engine column. An out-of-range
  * column falls back to Easy.
  */
 export function chooseAfterEngine(
@@ -244,6 +245,10 @@ export function chooseAfterEngine(
 ): number | null {
   let col = engineCol;
   if (role === "medium") col = pickMedium(moves, engineCol, moveScores, random) ?? engineCol;
+  else if (role === "perfect" && moveScores !== null) {
+    const pool = bestCols(moveScores);
+    if (pool.length > 0) col = pool[Math.floor(random() * pool.length)] ?? engineCol;
+  }
   if (!legalEngineColumn(col)) col = easyMove(moves, random) ?? col;
   return legalEngineColumn(col) ? col : null;
 }
