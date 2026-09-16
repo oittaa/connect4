@@ -148,6 +148,13 @@ impl Solver {
         self.move_book.as_ref()
     }
 
+    /// Read-only move-book lookup. Does not search or change stats.
+    pub fn move_book_column(&self, pos: &Position) -> Option<usize> {
+        self.move_book
+            .as_ref()
+            .and_then(|move_book| move_book.get(pos))
+    }
+
     /// Exact column scores from the score book only (no search).
     ///
     /// `None` unless every legal non-winning child is in the book, so Medium
@@ -1034,6 +1041,32 @@ mod tests {
                 char::from(b'1' + (6 - d))
             })
             .collect()
+    }
+
+    #[test]
+    fn move_book_column_is_read_only() {
+        let mut covered = Position::new();
+        covered.play_seq("12345");
+        let mut move_book = MoveBook::empty(10).unwrap();
+        move_book.insert(&covered, 3).unwrap();
+
+        let mut solver = Solver::with_tt_log(16);
+        solver.set_timeout_ms(1);
+        let mut expensive = Position::new();
+        expensive.play_seq("123456");
+        assert!(solver.solve(expensive).timed_out);
+        let nodes = solver.node_count();
+
+        solver.set_move_book(move_book);
+        assert_eq!(solver.move_book_column(&covered), Some(3));
+        assert_eq!(solver.node_count(), nodes);
+        assert!(solver.timed_out());
+        assert!(!solver.move_book_hit());
+        assert_eq!(solver.last_move_scores(), [INVALID_MOVE; WIDTH]);
+        assert_eq!(solver.move_book_column(&Position::new()), None);
+
+        solver.clear_move_book();
+        assert_eq!(solver.move_book_column(&covered), None);
     }
 
     #[test]

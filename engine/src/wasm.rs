@@ -111,6 +111,19 @@ impl WasmEngine {
         self.solver.move_book_hit()
     }
 
+    /// Move-book column for this position, or 255 if none. Does not search.
+    #[wasm_bindgen(js_name = moveBookColumn)]
+    pub fn move_book_column(&self, moves: &[u8]) -> u8 {
+        let mut p = Position::new();
+        if !p.play_moves(moves) {
+            return 255;
+        }
+        self.solver
+            .move_book_column(&p)
+            .map(|c| c as u8)
+            .unwrap_or(255)
+    }
+
     /// Unique 49-bit key as a string.
     pub fn key(&self, moves: &[u8]) -> Option<String> {
         let mut p = Position::new();

@@ -93,6 +93,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           id: msg.id,
           type: "availableScores",
           scores: Array.from(engine.knownColumnScores(moves)),
+          moveBookCol: engine.moveBookColumn(moves),
         });
         break;
       }

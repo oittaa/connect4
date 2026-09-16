@@ -246,9 +246,30 @@ export function provenBestColumns(
   return [];
 }
 
+/** Proven best columns, or the move-book column while full analysis is still running. */
+export function hintBestColumns(
+  scores: number[] | null,
+  heights: number[],
+  timedOut: boolean,
+  provenCol?: number,
+  moveBookCol?: number,
+): number[] {
+  const proven = provenBestColumns(scores, heights, timedOut, provenCol);
+  if (proven.length) return proven;
+  if (
+    moveBookCol !== undefined &&
+    moveBookCol >= 0 &&
+    moveBookCol < WIDTH &&
+    heights[moveBookCol] < HEIGHT
+  ) {
+    return [moveBookCol];
+  }
+  return [];
+}
+
 export function analysisScoreClass(score: number, isBest: boolean): string | null {
-  if (score === INVALID) return null;
   if (isBest) return "best";
+  if (score === INVALID) return null;
   if (score > 0) return "win";
   if (score < 0) return "loss";
   return "draw";
@@ -286,6 +307,14 @@ export function formatScore(s: number): string {
   if (s === INVALID) return "";
   if (s === 0) return "D";
   return s > 0 ? `W${s}` : `L${-s}`;
+}
+
+/** Score-strip label: exact W/D/L, "?" for a move-book column, "…" while analyzing. */
+export function formatHintScore(score: number, analyzing: boolean, isBest: boolean): string {
+  if (score !== INVALID) return formatScore(score);
+  if (isBest) return "?";
+  if (analyzing) return "…";
+  return "";
 }
 
 export function statusText(

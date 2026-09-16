@@ -20,7 +20,13 @@ export type WorkerReq =
   | { id: number; type: "saveTT" };
 
 export type WorkerRes =
-  | { id: number; type: "availableScores"; scores: number[] }
+  | {
+      id: number;
+      type: "availableScores";
+      scores: number[];
+      /** 0-based column from the move book, or 255 if none. */
+      moveBookCol: number;
+    }
   | {
       id: number;
       type: "ready";

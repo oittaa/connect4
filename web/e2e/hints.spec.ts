@@ -219,3 +219,67 @@ test("a late score-book reply cannot restore hints after switching them off", as
   await expect(page.locator("#scores")).toBeHidden();
   await expect(page.locator("#board .best-col")).toHaveCount(0);
 });
+
+test("move book highlights a best column with ? until analysis finishes", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = {
+      requests: [] as { type: string; moves?: number[] }[],
+      replies: [] as any[],
+      holdAnalyze: true,
+      held: [] as (() => void)[],
+    };
+    Object.assign(window, { hintTest: state });
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", (event) => {
+          state.replies.push(event.data);
+          if (event.data.type !== "analyzed" || !state.holdAnalyze) return;
+          event.stopImmediatePropagation();
+          state.held.push(() => this.dispatchEvent(new MessageEvent("message", { data: event.data })));
+        });
+      }
+      override postMessage(message: any): void {
+        state.requests.push(message);
+        super.postMessage(message);
+      }
+    };
+  });
+  await page.goto("/connect4/#moves=44444156&DEBUG");
+  await expect(page.locator("#engine-line")).toHaveText(/Solver ready/i, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).toContainText(/move book [1-9]/, { timeout: 60_000 });
+  await page.locator("#analyze").check();
+  await expect(page.locator("#scores")).toBeVisible();
+  await expect(page.locator("#scores span")).toHaveCount(7);
+  await expect(page.locator("#scores .best")).toHaveCount(1);
+  await expect(page.locator("#scores .best")).toHaveText("?");
+  await expect(page.locator("#board .best-col")).toHaveCount(1);
+  await expect(page.locator("#engine-line")).toHaveText(/analyzing/i);
+  const preview = await page.locator("#scores span").allTextContents();
+  expect(preview.filter((text) => text === "?").length).toBe(1);
+  expect(preview.every((text) => text === "?" || text === "…")).toBeTruthy();
+  const types = await page.evaluate(() =>
+    (window as any).hintTest.requests
+      .filter((r: any) => r.type === "availableScores" || r.type === "analyze")
+      .map((r: any) => r.type),
+  );
+  expect(types.slice(0, 2)).toEqual(["availableScores", "analyze"]);
+  await expect.poll(() => page.evaluate(() => (window as any).hintTest.held.length), {
+    timeout: 60_000,
+  }).toBeGreaterThan(0);
+  await expect(page.locator("#scores .best")).toHaveText("?");
+  await page.evaluate(() => {
+    const state = (window as any).hintTest;
+    state.holdAnalyze = false;
+    state.held.splice(0).forEach((release: () => void) => release());
+  });
+  await expect(page.locator("#scores span", { hasText: "?" })).toHaveCount(0);
+  await expect(page.locator("#scores .best").first()).toHaveText(/^(W\d+|L\d+|D)$/);
+  const bestLabels = await page.locator("#scores .best").allTextContents();
+  expect(bestLabels.length).toBeGreaterThanOrEqual(1);
+  expect(new Set(bestLabels).size).toBe(1);
+  await expect(page.locator("#board .best-col")).toHaveCount(bestLabels.length);
+  await expect(page.locator("#engine-line")).not.toHaveText(/analyzing/i);
+});
