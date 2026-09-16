@@ -31,8 +31,10 @@ export type WorkerRes =
       id: number;
       type: "availableScores";
       scores: number[];
-      /** 0-based move-book suggestion, or `NO_COLUMN` if none. Uncertified preview. */
+      /** 0-based move-book suggestion, or `NO_COLUMN` if none. */
       moveBookCol: number;
+      /** Certified optimal column, or `NO_COLUMN`. Its score is already exact. */
+      provenCol: number;
     }
   | {
       id: number;
@@ -49,8 +51,6 @@ export type WorkerRes =
       nodes: number;
       micros: number;
       timedOut: boolean;
-      /** Set when analysis proved an optimal column (never a bare book hint). */
-      provenCol?: number;
     }
   | {
       id: number;

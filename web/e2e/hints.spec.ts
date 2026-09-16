@@ -190,23 +190,15 @@ test("partial computer hints do not suppress full analysis after switching to Hu
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
 });
 
-test("move-book column is scored instantly past the score-book frontier", async ({ page }) => {
-  await openApp(page, "44444666");
-  await page.locator("#analyze").check();
-  await expect(page.locator("#scores span")).toHaveText(["", "", "", "", "", "W1", ""]);
-  await expect(page.locator('#board [data-col="5"]')).toHaveClass(/best-col/);
-  await expect(page.locator("#status")).toContainText("win");
-  await expect(page.locator("#engine-line")).not.toContainText(/Timed out/i);
-});
-
 test("a move-book computer turn shows the certified rank without delaying the move", async ({ page }) => {
   await openApp(page, "44444222");
   const box = await boardBox(page);
   await setRole(page, 1, "perfect");
   await setRole(page, 0, "perfect");
   await page.locator("#analyze").check();
-  await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
-  await expect(page.locator('#board [data-col="1"]')).toHaveClass(/best-col/);
+  // The certified rank is exact from the preview on and never changes,
+  // however the background fill later completes the other columns.
+  await expect(page.locator("#scores span").nth(1)).toHaveText("W1");
   await expect(page.locator(".disc")).toHaveCount(9, { timeout: 2500 });
   expect(await boardBox(page)).toEqual(box);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
@@ -257,16 +249,36 @@ async function releaseAnalyze(page: Page): Promise<void> {
   });
 }
 
-test("move book highlights a best column with ? until analysis finishes", async ({ page }) => {
+test("a certified preview shows the exact rank instantly, then fills every column", async ({ page }) => {
   await openHoldingAnalyze(page, "44444156");
-  // Instant preview: one `?` suggestion while the search is still running.
-  await expect(page.locator("#scores .best")).toHaveText("?");
+  // Certified preview: exact rank and proven status with no search at all.
+  await expect(page.locator("#scores span")).toHaveText(["…", "…", "…", "…", "…", "W1", "…"]);
   await expect(page.locator("#board .best-col")).toHaveCount(1);
+  await expect(page.locator("#status")).toContainText("win");
   await expect(page.locator("#engine-line")).toHaveText(/analyzing/i);
   await releaseAnalyze(page);
-  // Certified proof replaces the preview: exact rank, no `?` left.
+  // Background scoring filled every legal column; the proof never flickered.
+  await expect(page.locator("#scores span")).toHaveText(["L2", "L2", "D", "L2", "D", "W1", "D"]);
   await expect(page.locator("#scores span", { hasText: "?" })).toHaveCount(0);
-  await expect(page.locator("#scores span")).toHaveText(["", "", "", "", "", "W1", ""]);
+  await expect(page.locator("#board .best-col")).toHaveCount(1);
+  await expect(page.locator("#status")).toContainText("win");
+  await expect(page.locator("#engine-line")).not.toHaveText(/analyzing/i);
+  await expect(page.locator("#engine-line")).not.toContainText(/Timed out/i);
+});
+
+test("analysis keeps scoring past a certified frontier column", async ({ page }) => {
+  await openHoldingAnalyze(page, "44444666");
+  // Certified preview only: exact rank, everything else pending.
+  await expect(page.locator("#scores span")).toHaveText(["…", "…", "…", "…", "…", "W1", "…"]);
+  const preview = await page.locator("#scores span").allTextContents();
+  await expect(page.locator("#status")).toContainText("win");
+  await releaseAnalyze(page);
+  // The background search landed more exact scores instead of stopping.
+  await expect
+    .poll(() => page.locator("#scores span").allTextContents(), { timeout: 60_000 })
+    .not.toEqual(preview);
+  await expect(page.locator("#scores span", { hasText: "?" })).toHaveCount(0);
+  await expect(page.locator('#board [data-col="5"]')).toHaveClass(/best-col/);
   await expect(page.locator("#status")).toContainText("win");
   await expect(page.locator("#engine-line")).not.toHaveText(/analyzing/i);
 });

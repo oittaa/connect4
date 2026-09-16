@@ -62,8 +62,9 @@ test.describe("stale search restart", () => {
     const t0 = Date.now();
     await page.locator("#back").click();
     await expect(page.locator(".disc")).toHaveCount(8);
-    // The 8-ply parent is a certified move-book win: exact rank, no search.
-    await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
+    // The 8-ply parent is a certified move-book win: exact rank from the
+    // preview on, however the background fill later completes the rest.
+    await expect(page.locator("#scores span").nth(1)).toHaveText("W1");
     await expect(page.locator("#status")).toHaveText(/Red to move · win/i);
     expect(Date.now() - t0).toBeLessThan(2500);
     await expectBooksStillLoaded(page);
@@ -76,7 +77,7 @@ test.describe("stale search restart", () => {
     await waitSolverAndBooks(page);
     await setPace(page, 0);
     await page.locator("#analyze").check();
-    await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
+    await expect(page.locator("#scores span").nth(1)).toHaveText("W1");
     const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();
     await expect(page.locator(".disc")).toHaveCount(9);
@@ -88,7 +89,7 @@ test.describe("stale search restart", () => {
     await waitSolverAndBooks(page);
     await setPace(page, 0);
     await page.locator("#analyze").check();
-    await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
+    await expect(page.locator("#scores span").nth(1)).toHaveText("W1");
     await page.locator("#analyze").uncheck();
     const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();
