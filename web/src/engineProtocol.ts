@@ -49,7 +49,12 @@ export type WorkerRes =
       timedOut: boolean;
       /** How the engine chose `col`: `moveBook`, `scoreBook`, `tactical`, `search`, or a future path. */
       origin: string;
-      /** Parent score from that path, or null when the engine has none (move book). */
+      /**
+       * Score of the engine's `col` from `lastMoveScores`, or null when that
+       * column was not proven (move book, or a column the search skipped).
+       * Not the search target. The UI logs the played column, which Medium
+       * may choose differently.
+       */
       score: number | null;
       fromMoveBook: boolean;
     }

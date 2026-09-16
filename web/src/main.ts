@@ -456,18 +456,17 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     return;
   }
   const col = resolveSolverColumn(turn.plan.choose, { col: r.col, moveScores: r.moveScores }, turn.moves);
-  const fact = col !== null ? factFromSolverReply(turn.moves, col, r) : null;
-  if (fact) debugMove(fact, { status: true, log: false });
   computerHintGeneration++;
   computerHints = r.hintScores.some((s) => s !== INVALID)
     ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : r.col }
     : null;
   if (col === null || gameOver()) thinking = false;
   renderBoard(false);
-  // Let the current position's hints remain visible for the chosen pace.
-  if (col !== null && !gameOver() && fact) {
+  // Log once, after the disc is on the board, so ply/column match the URL.
+  if (col !== null && !gameOver()) {
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {
+        const fact = factFromSolverReply(turn.moves, col, r);
         applyMove(col);
         debugMove(fact);
       }

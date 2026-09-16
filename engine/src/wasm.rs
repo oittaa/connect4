@@ -111,16 +111,12 @@ impl WasmEngine {
         self.solver.move_book_hit()
     }
 
-    /// `moveBook`, `scoreBook`, `tactical`, or `search` after `bestMove`.
-    #[wasm_bindgen(js_name = moveOrigin)]
+    /// How `bestMove` chose its column: `moveBook`, `scoreBook`, `tactical`, or `search`.
+    /// Not a `*Score` js_name: wasm-bindgen would expose a `score` property
+    /// whose missing setter throws `engine.setScore is not a function`.
+    #[wasm_bindgen(js_name = selectionOrigin)]
     pub fn move_origin(&self) -> String {
         self.solver.move_origin().as_str().to_string()
-    }
-
-    /// Parent score from the most recent `bestMove`, or `INVALID_MOVE`.
-    #[wasm_bindgen(js_name = lastScore)]
-    pub fn last_score(&self) -> i16 {
-        self.solver.last_score() as i16
     }
 
     /// Unique 49-bit key as a string.

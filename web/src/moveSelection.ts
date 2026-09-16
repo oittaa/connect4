@@ -1,5 +1,5 @@
-import type { WorkerRes } from "./engineProtocol.ts";
-import { formatScore, toMove } from "./game.ts";
+import type { CompleteColumnScores, WorkerRes } from "./engineProtocol.ts";
+import { formatScore, INVALID, toMove } from "./game.ts";
 
 export type Side = "Red" | "Yellow";
 
@@ -46,13 +46,29 @@ export function moveFact(
   return { origin, col, ...moverOf(moves), ...extra };
 }
 
+/** Score of the played column, from that side. Never the search target. */
+export function scoreOfPlayedColumn(
+  col: number,
+  moveScores: CompleteColumnScores | null | undefined,
+  hintScores: number[] | undefined,
+): number | undefined {
+  const hint = hintScores?.[col];
+  if (hint !== undefined && hint !== INVALID) return hint;
+  const book = moveScores?.[col];
+  if (book !== undefined && book !== INVALID) return book;
+  return undefined;
+}
+
 export function factFromSolverReply(
   moves: number[],
   col: number,
-  reply: Pick<Extract<WorkerRes, { type: "moved" }>, "origin" | "score" | "nodes" | "micros" | "timedOut">,
+  reply: Pick<
+    Extract<WorkerRes, { type: "moved" }>,
+    "origin" | "nodes" | "micros" | "timedOut" | "moveScores" | "hintScores"
+  >,
 ): MoveFact {
   return moveFact(moves, col, reply.origin, {
-    score: reply.score ?? undefined,
+    score: scoreOfPlayedColumn(col, reply.moveScores, reply.hintScores),
     nodes: reply.nodes,
     micros: reply.micros,
     timedOut: reply.timedOut,
@@ -66,7 +82,7 @@ export function formatMoveSelection(fact: MoveFact): string {
   const nps = hashesPerSecond(fact.nodes ?? 0, fact.micros ?? 0);
   const npsPart = nps > 0 ? ` · ${nps} hashes/s` : "";
   const timeout = fact.timedOut ? " timed out" : "";
-  return `${label}${score}${npsPart}${timeout} (ply ${fact.ply}, ${fact.side}, column ${fact.col + 1})`;
+  return `ply ${fact.ply} ${fact.side} ${label}${score}${npsPart}${timeout}, column ${fact.col + 1}`;
 }
 
 /** DEBUG footer line for `analyze` (not a played move). */
