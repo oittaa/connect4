@@ -80,13 +80,14 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         break;
       case "availableScores": {
         // Read-only hints for active computers, including JS-only Easy moves:
-        // search-free scores plus the uncertified move-book suggestion.
-        const moves = u8(msg.moves);
+        // one preview call holds both the search-free scores and the
+        // uncertified move-book suggestion.
+        const preview = Array.from(engine.previewScores(u8(msg.moves)));
         reply({
           id: msg.id,
           type: "availableScores",
-          scores: Array.from(engine.knownColumnScores(moves)),
-          moveBookCol: engine.moveBookColumn(moves),
+          scores: preview.slice(0, 7),
+          moveBookCol: preview[7] ?? 255,
         });
         break;
       }

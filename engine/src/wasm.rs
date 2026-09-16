@@ -75,28 +75,22 @@ impl WasmEngine {
         }
     }
 
-    /// Read-only hint scores from the score book and immediate wins/losses only.
-    /// Unknown and full columns are `INVALID_MOVE`; search stats are unchanged.
-    #[wasm_bindgen(js_name = knownColumnScores)]
-    pub fn known_column_scores(&self, moves: &[u8]) -> Vec<i16> {
+    /// Instant hint preview in one call: seven search-free column scores
+    /// (`INVALID_MOVE` where unknown) plus the uncertified move-book
+    /// suggestion (255 if none), shown as `?` until analysis scores it.
+    /// Read-only: no search, stats unchanged.
+    #[wasm_bindgen(js_name = previewScores)]
+    pub fn preview_scores(&self, moves: &[u8]) -> Vec<i16> {
         let mut p = Position::new();
         if !p.play_moves(moves) {
-            return vec![INVALID_MOVE as i16; 7];
+            let mut out = vec![INVALID_MOVE as i16; 7];
+            out.push(255);
+            return out;
         }
-        let (scores, _) = self.solver.hint_preview(&p);
-        scores.iter().map(|&s| s as i16).collect()
-    }
-
-    /// Move-book suggestion for this position, or 255 if none. Read-only:
-    /// no search, stats unchanged. Shown as `?` until analysis scores it.
-    #[wasm_bindgen(js_name = moveBookColumn)]
-    pub fn move_book_column(&self, moves: &[u8]) -> u8 {
-        let mut p = Position::new();
-        if !p.play_moves(moves) {
-            return 255;
-        }
-        let (_, book) = self.solver.hint_preview(&p);
-        book.map(|c| c as u8).unwrap_or(255)
+        let (scores, book) = self.solver.hint_preview(&p);
+        let mut out: Vec<i16> = scores.iter().map(|&s| s as i16).collect();
+        out.push(book.map(|c| c as i16).unwrap_or(255));
+        out
     }
 
     #[wasm_bindgen(js_name = moveBookMoves)]
@@ -141,17 +135,6 @@ impl WasmEngine {
     #[wasm_bindgen(js_name = ttLoad)]
     pub fn tt_load(&mut self, data: &[u8]) -> bool {
         self.solver.tt_mut().load(data).is_ok()
-    }
-
-    /// Column scores from the most recent `bestMove` call: exact where the
-    /// search needed to prove them, `INVALID_MOVE` elsewhere. Does not search.
-    #[wasm_bindgen(js_name = lastMoveScores)]
-    pub fn last_move_scores(&self) -> Vec<i16> {
-        self.solver
-            .last_move_scores()
-            .iter()
-            .map(|&s| s as i16)
-            .collect()
     }
 
     /// Hint scores after the most recent `bestMove`: the search's own scores
