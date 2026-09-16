@@ -81,20 +81,23 @@ impl WasmEngine {
     }
 
     /// Instant hint preview in one call: seven search-free column scores
-    /// (`INVALID_MOVE` where unknown) plus the uncertified move-book
-    /// suggestion (`NO_COLUMN` if none), shown as `?` until analysis scores it.
-    /// Read-only: no search, stats unchanged.
+    /// (`INVALID_MOVE` where unknown), the move-book suggestion, and the
+    /// certified column (`NO_COLUMN` where absent). A certified suggestion
+    /// already carries its exact rank; an uncertified one shows as `?` until
+    /// analysis scores it. Read-only: no search, stats unchanged.
     #[wasm_bindgen(js_name = previewScores)]
     pub fn preview_scores(&self, moves: &[u8]) -> Vec<i16> {
         let mut p = Position::new();
         if !p.play_moves(moves) {
             let mut out = vec![INVALID_MOVE as i16; 7];
             out.push(NO_COLUMN as i16);
+            out.push(NO_COLUMN as i16);
             return out;
         }
-        let (scores, book) = self.solver.hint_preview(&p);
+        let (scores, book, proven) = self.solver.hint_preview(&p);
         let mut out: Vec<i16> = scores.iter().map(|&s| s as i16).collect();
         out.push(book.map(|c| c as i16).unwrap_or(NO_COLUMN as i16));
+        out.push(proven.map(|c| c as i16).unwrap_or(NO_COLUMN as i16));
         out
     }
 
@@ -155,17 +158,6 @@ impl WasmEngine {
             .iter()
             .map(|&s| s as i16)
             .collect()
-    }
-
-    /// 0-based column proved optimal by the last `analyze`/`bestMove`, or
-    /// `NO_COLUMN`. A bare move-book suggestion never appears here; only a
-    /// real proof does.
-    #[wasm_bindgen(js_name = lastProvenCol)]
-    pub fn last_proven_col(&self) -> u8 {
-        self.solver
-            .last_proven_col()
-            .map(|c| c as u8)
-            .unwrap_or(NO_COLUMN)
     }
 
     pub fn solve(&mut self, moves: &[u8]) -> i8 {

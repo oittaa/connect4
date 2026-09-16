@@ -222,9 +222,11 @@ function analysisComplete(scores: ArrayLike<number>, heights: number[]): boolean
 }
 
 /**
- * Highlighted hint columns. A proof wins (complete exact scores, or a
- * certified `provenCol` from a short-circuited search); otherwise the
- * uncertified move-book suggestion shows while its score is still unknown.
+ * Highlighted hint columns. Complete exact scores win; otherwise an exact
+ * `provenCol` (a certified preview, or a finished best-move search) still
+ * certifies its equals — even past a background timeout, which cannot
+ * unprove it. A timed-out search alone proves nothing. Whatever remains
+ * falls back to the uncertified move-book suggestion.
  */
 export function provenBestColumns(
   scores: number[] | null,
@@ -233,11 +235,8 @@ export function provenBestColumns(
   provenCol?: number,
   bookCol?: number,
 ): number[] {
-  if (!scores || timedOut) return legalBookCol(heights, bookCol);
-  if (analysisComplete(scores, heights)) return bestCols(scores);
-  // A completed best-move search, or analysis that short-circuited on a
-  // certified book/score-book proof, can certify an optimal column without
-  // scoring every alternative. A partial analysis alone cannot.
+  if (!scores) return legalBookCol(heights, bookCol);
+  if (!timedOut && analysisComplete(scores, heights)) return bestCols(scores);
   if (provenCol !== undefined && heights[provenCol] < HEIGHT && scores[provenCol] !== INVALID) {
     return scores.map((s, c) => s === scores[provenCol] ? c : -1).filter((c) => c >= 0);
   }

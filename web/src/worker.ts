@@ -80,21 +80,24 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         break;
       case "availableScores": {
         // Read-only hints for active computers, including JS-only Easy moves:
-        // one preview call holds both the search-free scores and the
-        // uncertified move-book suggestion.
+        // one preview call holds the search-free scores, the move-book
+        // suggestion, and the certified column if the suggestion is exact.
         const preview = Array.from(engine.previewScores(u8(msg.moves)));
         reply({
           id: msg.id,
           type: "availableScores",
           scores: preview.slice(0, 7),
           moveBookCol: preview[7] ?? NO_COLUMN,
+          provenCol: preview[8] ?? NO_COLUMN,
         });
         break;
       }
       case "analyze": {
+        // Always scores every legal column. The instant certified answer, if
+        // any, already went out with the preview; this reply only fills in
+        // the rest.
         const moves = u8(msg.moves);
         const raw = Array.from(engine.analyze(moves));
-        const proven = engine.lastProvenCol();
         reply({
           id: msg.id,
           type: "analyzed",
@@ -102,7 +105,6 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           nodes: engine.nodeCount(),
           micros: engine.micros(),
           timedOut: engine.timedOut(),
-          ...(proven === NO_COLUMN ? {} : { provenCol: proven }),
         });
         break;
       }

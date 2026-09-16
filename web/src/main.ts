@@ -30,7 +30,7 @@ import {
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
-import type { WorkerRes } from "./engineProtocol";
+import { NO_COLUMN, type WorkerRes } from "./engineProtocol";
 import { restoreRetainedBooks, shouldStartBookDownload } from "./bookRestore";
 import { fetchBookWithDeadline, isAbortError } from "./bookDownload";
 import { createWorkerReplace } from "./workerReplace";
@@ -309,12 +309,15 @@ function renderBoard(animateLast: boolean): void {
     scoresEl.replaceChildren();
   }
 
+  // A certified preview already proves the result, so it reaches the status
+  // line at once; a bare `?` preview reports nothing until scores arrive.
+  const statusScores = showHints && (!analyzing || provenCol !== undefined) ? hints?.scores ?? null : null;
   statusEl.textContent = statusText(
     m,
-    showHints && !analyzing ? hints?.scores ?? null : null,
+    statusScores,
     thinking,
     hints?.timedOut ?? false,
-    showHints && !analyzing ? provenCol : undefined,
+    statusScores ? provenCol : undefined,
   );
   if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
   statusEl.classList.toggle("thinking", !over && !paused && (thinking || analyzing));
@@ -438,7 +441,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   const col = resolveSolverColumn(turn.plan.choose, { col: r.col, moveScores: r.moveScores }, turn.moves);
   computerHintGeneration++;
   computerHints = r.hintScores.some((s) => s !== INVALID)
-    ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : r.col }
+    ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : toLegalCol(r.col) }
     : null;
   if (col === null || gameOver()) thinking = false;
   renderBoard(false);
@@ -457,18 +460,26 @@ async function requestAvailableScores(): Promise<void> {
   const r = await send({ type: "availableScores", moves: played() });
   if (token !== computerHintGeneration || r.type !== "availableScores" || !shouldRequestAvailableScores(hintContext())) return;
   if (r.scores.some((s) => s !== INVALID)) {
-    computerHints = { ...computerHints, scores: r.scores, timedOut: computerHints?.timedOut ?? false };
+    computerHints = {
+      scores: r.scores,
+      timedOut: computerHints?.timedOut ?? false,
+      // A proof-less peek must not erase the proof a bestMove reply proved
+      // for this same position (the token guard rules out anything older).
+      provenCol: toLegalCol(r.provenCol) ?? computerHints?.provenCol,
+    };
   }
   renderBoard(false);
 }
 
-/** Store a search-free preview: known scores plus the uncertified book column. */
-function applyAnalysisPreview(scores: number[], moveBookCol: number): void {
-  analysis = {
-    scores,
-    timedOut: false,
-    bookCol: moveBookCol >= 0 && moveBookCol < WIDTH ? moveBookCol : undefined,
-  };
+/** Engine column bounds: anything outside 0-6 (including NO_COLUMN) is none. */
+function toLegalCol(c: number | undefined): number | undefined {
+  return c !== undefined && c >= 0 && c < WIDTH ? c : undefined;
+}
+
+/** Store a search-free preview: known scores, the book suggestion, and its
+ * proof if the suggestion is already exact. */
+function applyAnalysisPreview(scores: number[], moveBookCol: number, provenCol: number): void {
+  analysis = { scores, timedOut: false, bookCol: toLegalCol(moveBookCol), provenCol: toLegalCol(provenCol) };
 }
 
 async function requestAnalyze(): Promise<void> {
@@ -489,7 +500,7 @@ async function requestAnalyze(): Promise<void> {
     const preview = await send({ type: "availableScores", moves });
     if (!analysisReplyApplies(token, analysisGeneration, hintContext())) return;
     if (preview.type === "availableScores") {
-      applyAnalysisPreview(preview.scores, preview.moveBookCol);
+      applyAnalysisPreview(preview.scores, preview.moveBookCol, preview.provenCol);
       renderBoard(false);
     }
   }
@@ -501,9 +512,10 @@ async function requestAnalyze(): Promise<void> {
     analysis = {
       scores: r.scores,
       timedOut: r.timedOut,
-      // A timeout proves nothing, but the suggestion behind `?` is still valid.
+      // A timeout proves nothing, but the preview's suggestion and proof
+      // stay valid behind `?` and the exact rank.
       bookCol: r.timedOut ? analysis?.bookCol : undefined,
-      provenCol: r.provenCol,
+      provenCol: analysis?.provenCol,
     };
     reportEngine(r.nodes, r.micros, r.timedOut);
   } else {
