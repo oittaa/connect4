@@ -78,7 +78,9 @@ export const medium = {
   label: "Medium",
   plan(moves: number[], random: () => number) {
     const forced = forcedWinOrBlock(moves);
-    if (forced !== null) return { type: "local" as const, col: forced };
+    if (forced !== null) {
+      return { type: "local" as const, col: forced, origin: "forced" as const };
+    }
     return {
       type: "solver" as const,
       choose: (reply: SolverMove) => pickMedium(moves, reply.col, reply.moveScores, random) ?? reply.col,

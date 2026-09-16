@@ -28,7 +28,13 @@ import {
   type HintSessionContext,
   type HintSessionEvent,
 } from "./game";
-import { describeHumanMove, describeLocalMove, describeSolverMove, logMoveSelection } from "./moveSelectionLog";
+import {
+  factFromSolverReply,
+  formatSearchReport,
+  moveFact,
+  publishMoveSelection,
+  type MoveFact,
+} from "./moveSelection";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
@@ -325,13 +331,22 @@ function renderBoard(animateLast: boolean): void {
   pauseBtn.textContent = paused ? "Resume" : "Pause";
 }
 
+function debugMove(fact: MoveFact, sinks: { status?: boolean; log?: boolean } = { status: true, log: true }): void {
+  publishMoveSelection(isDebugMode(), fact, {
+    status: sinks.status ? (line) => { engineLine.textContent = line; } : undefined,
+    log: sinks.log ? console.log : undefined,
+  });
+}
+
 function tryDrop(col: number): void {
   if (gameOver()) return;
   if (currentSeat().kind !== "human") return;
   const g = playMoves(played());
   if (g.height[col] >= HEIGHT) return;
-  logMoveSelection(isDebugMode(), describeHumanMove(played(), col));
+  const fact = moveFact(played(), col, "human");
   applyMove(col);
+  // After paint: `renderBoard` would otherwise replace a winning drop with "Game over."
+  debugMove(fact);
 }
 
 function applyMove(col: number): void {
@@ -424,8 +439,9 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (computerTurnStale(turn.generation)) return;
   if (turn.plan.type === "local") {
     if (!gameOver()) {
-      logMoveSelection(isDebugMode(), describeLocalMove(turn.moves, turn.plan.col));
+      const fact = moveFact(turn.moves, turn.plan.col, turn.plan.origin);
       applyMove(turn.plan.col);
+      debugMove(fact);
     }
     return;
   }
@@ -439,8 +455,9 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     renderBoard(false);
     return;
   }
-  reportEngine(r.nodes, r.micros, r.timedOut, r.fromMoveBook);
   const col = resolveSolverColumn(turn.plan.choose, { col: r.col, moveScores: r.moveScores }, turn.moves);
+  const fact = col !== null ? factFromSolverReply(turn.moves, col, r) : null;
+  if (fact) debugMove(fact, { status: true, log: false });
   computerHintGeneration++;
   computerHints = r.hintScores.some((s) => s !== INVALID)
     ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : r.col }
@@ -448,11 +465,11 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (col === null || gameOver()) thinking = false;
   renderBoard(false);
   // Let the current position's hints remain visible for the chosen pace.
-  if (col !== null && !gameOver()) {
+  if (col !== null && !gameOver() && fact) {
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {
-        logMoveSelection(isDebugMode(), describeSolverMove(col, r, turn.moves));
         applyMove(col);
+        debugMove(fact);
       }
     }, delayMs);
   }
@@ -492,27 +509,8 @@ async function requestAnalyze(): Promise<void> {
   renderBoard(false);
 }
 
-function reportEngine(
-  nodes: number,
-  micros: number,
-  timedOut: boolean,
-  fromMoveBook = false,
-): void {
-  const ms = micros / 1000;
-  const nps = ms > 0 ? (nodes / ms) * 1000 : 0;
-  if (fromMoveBook) {
-    engineLine.textContent = "instant (move book)";
-    return;
-  }
-  if (nodes === 0 && !timedOut) {
-    engineLine.textContent = "instant (score book / tactical)";
-    return;
-  }
-  const src = downloadedBooksEnabled ? "search" : "search (embedded score book only)";
-  engineLine.textContent = timedOut
-    ? `Timed out after ${ms.toFixed(0)} ms · ${nodes.toLocaleString()} nodes (result not proven)`
-    : `${src}: ${nodes.toLocaleString()} nodes in ${ms < 10 ? ms.toFixed(1) : ms.toFixed(0)} ms` +
-      (nps ? ` · ${(nps / 1000).toFixed(0)} kn/s` : "");
+function reportEngine(nodes: number, micros: number, timedOut: boolean): void {
+  engineLine.textContent = formatSearchReport(nodes, micros, timedOut, !downloadedBooksEnabled);
 }
 
 backBtn.addEventListener("click", () => {

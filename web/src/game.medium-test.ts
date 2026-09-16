@@ -66,12 +66,12 @@ assert(planOf("easy", winSeqPlayed, () => 0) === null, "Easy skips a finished ga
 assert(planOf("medium", winSeqPlayed, () => 0) === null, "Medium skips a finished game");
 assert(planOf("perfect", winSeqPlayed, () => 0) === null, "Perfect skips a finished game");
 
-same(planOf("easy", [], () => 0), { type: "local", col: 0 }, "Easy picks the first legal column");
-same(planOf("easy", [], () => 0.99), { type: "local", col: 6 }, "Easy picks the last legal column");
-same(planOf("easy", winSeq, () => 0), { type: "local", col: 0 }, "Easy forced mate is local");
-same(planOf("easy", blockSeq, () => 0), { type: "local", col: 0 }, "Easy forced block is local");
-same(planOf("medium", winSeq, () => 0), { type: "local", col: 0 }, "Medium mate is local");
-same(planOf("medium", blockSeq, () => 0), { type: "local", col: 0 }, "Medium block is local");
+same(planOf("easy", [], () => 0), { type: "local", col: 0, origin: "random" }, "Easy picks the first legal column");
+same(planOf("easy", [], () => 0.99), { type: "local", col: 6, origin: "random" }, "Easy picks the last legal column");
+same(planOf("easy", winSeq, () => 0), { type: "local", col: 0, origin: "forced" }, "Easy forced mate is local");
+same(planOf("easy", blockSeq, () => 0), { type: "local", col: 0, origin: "forced" }, "Easy forced block is local");
+same(planOf("medium", winSeq, () => 0), { type: "local", col: 0, origin: "forced" }, "Medium mate is local");
+same(planOf("medium", blockSeq, () => 0), { type: "local", col: 0, origin: "forced" }, "Medium block is local");
 same(planOf("medium", [], () => 0), { type: "solver" }, "Medium otherwise asks the engine");
 same(planOf("medium", hangSeq, () => 0), { type: "solver" }, "Medium hang is not tactical");
 same(planOf("perfect", [], () => 0), { type: "solver" }, "Perfect asks the engine");

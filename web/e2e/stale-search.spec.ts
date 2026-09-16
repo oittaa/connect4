@@ -90,7 +90,7 @@ test.describe("stale search restart", () => {
     const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();
     await expect(page.locator(".disc")).toHaveCount(9);
-    await expect(page.locator("#engine-line")).toHaveText(/instant \(move book\)/i);
+    await expect(page.locator("#engine-line")).toHaveText(/move book/i);
     expect(Date.now() - t0).toBeLessThan(1500);
     await expectBooksStillLoaded(page);
   });
@@ -103,6 +103,6 @@ test.describe("stale search restart", () => {
     await page.locator('input[name="role0"][value="perfect"]').check();
     await expect(page.locator(".disc")).toHaveCount(9);
     expect(Date.now() - t0).toBeLessThan(1000);
-    await expect(page.locator("#engine-line")).toHaveText(/instant \(move book\)/i);
+    await expect(page.locator("#engine-line")).toHaveText(/move book/i);
   });
 });

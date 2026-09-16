@@ -11,6 +11,30 @@ use std::time::{Duration, Instant};
 const COLUMN_ORDER: [usize; WIDTH] = [3, 4, 2, 5, 1, 6, 0];
 pub const INVALID_MOVE: i32 = -1000;
 
+/// How `select_move` / `best_move` chose a column. The web UI prints this
+/// instead of reconstructing a source from leftover stats.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MoveOrigin {
+    #[default]
+    None,
+    MoveBook,
+    ScoreBook,
+    Tactical,
+    Search,
+}
+
+impl MoveOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::MoveBook => "moveBook",
+            Self::ScoreBook => "scoreBook",
+            Self::Tactical => "tactical",
+            Self::Search => "search",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct SolveResult {
     pub score: i32,
@@ -32,6 +56,10 @@ pub struct Solver {
     #[cfg(not(target_arch = "wasm32"))]
     tt_log: u32,
     move_book_hit: bool,
+    origin: MoveOrigin,
+    /// Parent score from the most recent `best_move`/`select_move`. `INVALID_MOVE`
+    /// on a move-book hit (no score search) or before the first call.
+    last_score: i32,
     /// Column scores from the most recent `best_move`/`select_move` call.
     /// `INVALID_MOVE` for columns that search did not need to visit. Not
     /// persisted or reused across positions; read it right after that call.
@@ -67,6 +95,8 @@ impl Solver {
             #[cfg(not(target_arch = "wasm32"))]
             tt_log: log_size,
             move_book_hit: false,
+            origin: MoveOrigin::None,
+            last_score: INVALID_MOVE,
             last_move_scores: [INVALID_MOVE; WIDTH],
             #[cfg(not(target_arch = "wasm32"))]
             start: None,
@@ -80,6 +110,8 @@ impl Solver {
         self.timed_out = false;
         self.check_counter = 0;
         self.move_book_hit = false;
+        self.origin = MoveOrigin::None;
+        self.last_score = INVALID_MOVE;
         self.last_move_scores = [INVALID_MOVE; WIDTH];
     }
 
@@ -93,6 +125,14 @@ impl Solver {
 
     pub fn move_book_hit(&self) -> bool {
         self.move_book_hit
+    }
+
+    pub fn move_origin(&self) -> MoveOrigin {
+        self.origin
+    }
+
+    pub fn last_score(&self) -> i32 {
+        self.last_score
     }
 
     /// Column scores discovered by the most recent `best_move`/`select_move`
@@ -362,6 +402,7 @@ impl Solver {
         let (target, from_score_book) = self.score_position(pos);
         let mut scores = [INVALID_MOVE; WIDTH];
         let mut best_col = None;
+        let mut origin = MoveOrigin::Search;
         for &col in &COLUMN_ORDER {
             if !pos.can_play(col) {
                 continue;
@@ -369,6 +410,7 @@ impl Solver {
             if pos.is_winning_move(col) {
                 scores[col] = (AREA as i32 + 1 - pos.moves() as i32) / 2;
                 best_col = Some(col);
+                origin = MoveOrigin::Tactical;
                 break;
             }
             // A timed-out parent solve has not established an exact target.
@@ -402,11 +444,20 @@ impl Solver {
             if s <= -target {
                 scores[col] = target;
                 best_col = Some(col);
+                origin = if from_score_book && self.nodes == 0 {
+                    MoveOrigin::ScoreBook
+                } else if self.nodes == 0 {
+                    MoveOrigin::Tactical
+                } else {
+                    MoveOrigin::Search
+                };
                 break;
             }
         }
         let col = best_col?;
         self.last_move_scores = scores;
+        self.last_score = target;
+        self.origin = origin;
         let result = SolveResult {
             score: target,
             nodes: self.nodes,
@@ -432,6 +483,7 @@ impl Solver {
             .and_then(|move_book| move_book.get(&pos))
         {
             self.move_book_hit = true;
+            self.origin = MoveOrigin::MoveBook;
             return Some(col);
         }
         self.best_move(pos).map(|(col, _, _)| col)
@@ -1055,6 +1107,8 @@ mod tests {
         assert_eq!(solver.node_count(), 0);
         assert!(!solver.timed_out());
         assert!(solver.move_book_hit());
+        assert_eq!(solver.move_origin(), MoveOrigin::MoveBook);
+        assert_eq!(solver.last_score(), INVALID_MOVE);
         assert_eq!(
             solver.last_move_scores(),
             [INVALID_MOVE; WIDTH],
@@ -1069,6 +1123,8 @@ mod tests {
         pos.play_seq("4455");
         assert_eq!(solver.select_move(pos), Some(2));
         assert!(!solver.move_book_hit());
+        assert_eq!(solver.move_origin(), MoveOrigin::Search);
+        assert_eq!(solver.last_score(), 18);
         let scores = solver.last_move_scores();
         assert_eq!(scores[2], 18, "the chosen column's score is not discarded");
         assert_eq!(scores[3], INVALID_MOVE);
@@ -1082,6 +1138,17 @@ mod tests {
         let pos = Position::new();
         assert_eq!(solver.select_move(pos), Some(3));
         assert!(!solver.move_book_hit());
+        assert_eq!(solver.move_origin(), MoveOrigin::ScoreBook);
+        assert_eq!(solver.last_score(), 1);
+
+        let mut win_now = Position::new();
+        assert_eq!(win_now.play_seq("121314"), 6);
+        assert_eq!(win_now.moves(), 6);
+        assert!(win_now.can_win_next(), "Red can finish column 1");
+        assert_eq!(solver.select_move(win_now), Some(0));
+        // Centre-first probing can visit other columns; the chosen drop is still the mate.
+        assert_eq!(solver.move_origin(), MoveOrigin::Tactical);
+        assert_eq!(solver.last_score(), (AREA as i32 + 1 - 6) / 2);
 
         let mut terminal = Position::new();
         terminal.play_seq("121314");

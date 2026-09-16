@@ -114,6 +114,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const col = engine.bestMove(moves);
         const nodes = engine.nodeCount();
         const micros = nodes === 0 ? 0 : engine.micros();
+        const lastScore = engine.lastScore();
         reply({
           id: msg.id,
           type: "moved",
@@ -123,6 +124,8 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           nodes,
           micros,
           timedOut: engine.timedOut(),
+          origin: engine.moveOrigin() || "search",
+          score: lastScore === INVALID ? null : lastScore,
           fromMoveBook: engine.moveBookHit(),
         });
         break;

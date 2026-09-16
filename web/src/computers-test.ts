@@ -46,7 +46,7 @@ assert(seatFromFormValue("") === null, "empty value is not Human");
 const alwaysCenter: ComputerPolicy = {
   label: "Test",
   plan() {
-    return { type: "local", col: 3 };
+    return { type: "local", col: 3, origin: "random" };
   },
 };
 assert(play(alwaysCenter, [], () => 0) === 3, "unknown policy can play a local column");

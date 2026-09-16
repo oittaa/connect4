@@ -47,6 +47,10 @@ export type WorkerRes =
       nodes: number;
       micros: number;
       timedOut: boolean;
+      /** How the engine chose `col`: `moveBook`, `scoreBook`, `tactical`, `search`, or a future path. */
+      origin: string;
+      /** Parent score from that path, or null when the engine has none (move book). */
+      score: number | null;
       fromMoveBook: boolean;
     }
   | { id: number; type: "ttSaved" }

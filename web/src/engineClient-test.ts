@@ -147,6 +147,8 @@ function ready(id: number): WorkerRes {
     nodes: 0,
     micros: 0,
     timedOut: false,
+    origin: "search",
+    score: null,
     fromMoveBook: false,
   });
   const late = await client.request({ type: "analyze", moves: [] });

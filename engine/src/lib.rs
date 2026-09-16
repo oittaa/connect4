@@ -16,4 +16,4 @@ pub mod wasm;
 pub use move_book::MoveBook;
 pub use position::{Position, AREA, HEIGHT, MAX_SCORE, MIN_SCORE, WIDTH};
 pub use score_book::ScoreBook;
-pub use solver::{winning_move_number, SolveResult, Solver, INVALID_MOVE};
+pub use solver::{winning_move_number, MoveOrigin, SolveResult, Solver, INVALID_MOVE};

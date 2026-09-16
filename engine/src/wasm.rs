@@ -111,6 +111,18 @@ impl WasmEngine {
         self.solver.move_book_hit()
     }
 
+    /// `moveBook`, `scoreBook`, `tactical`, or `search` after `bestMove`.
+    #[wasm_bindgen(js_name = moveOrigin)]
+    pub fn move_origin(&self) -> String {
+        self.solver.move_origin().as_str().to_string()
+    }
+
+    /// Parent score from the most recent `bestMove`, or `INVALID_MOVE`.
+    #[wasm_bindgen(js_name = lastScore)]
+    pub fn last_score(&self) -> i16 {
+        self.solver.last_score() as i16
+    }
+
     /// Unique 49-bit key as a string.
     pub fn key(&self, moves: &[u8]) -> Option<String> {
         let mut p = Position::new();
