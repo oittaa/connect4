@@ -1,0 +1,27 @@
+services:
+  web:
+    build:
+      context: .
+      target: toolchain
+    network_mode: bridge
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/repo
+      - web-node-modules:/repo/web/node_modules
+      - cargo-target:/repo/target
+    command: >
+      sh -c "./scripts/build-wasm.sh && cd web && npm ci && npm run dev"
+
+  dist:
+    build:
+      context: .
+      target: dist
+    volumes:
+      - ./web/dist:/out
+    profiles:
+      - dist
+
+volumes:
+  web-node-modules:
+  cargo-target:

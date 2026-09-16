@@ -1,0 +1,12 @@
+.git
+.github
+.cursor
+target
+testdata
+web/node_modules
+web/dist
+web/src/pkg
+web/test-results
+web/playwright-report
+web/blob-report
+web/playwright/.cache
