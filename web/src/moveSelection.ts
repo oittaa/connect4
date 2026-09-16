@@ -1,32 +1,14 @@
-import type { WorkerRes } from "./engineProtocol.ts";
-import { formatScore, INVALID, toMove } from "./game.ts";
+import { toMove } from "./game.ts";
 
 export type Side = "Red" | "Yellow";
 
 export type MoveFact = {
-  origin: string;
+  name: string;
+  extra: string;
   col: number;
   ply: number;
   side: Side;
-  score?: number;
-  nodes?: number;
-  micros?: number;
-  timedOut?: boolean;
 };
-
-const ORIGIN_LABEL: Record<string, string> = {
-  human: "human",
-  forced: "forced",
-  random: "random",
-  moveBook: "move book",
-  scoreBook: "score book",
-  tactical: "tactical",
-  search: "engine",
-};
-
-function hashesPerSecond(nodes: number, micros: number): number {
-  return micros > 0 ? Math.round((nodes / micros) * 1_000_000) : 0;
-}
 
 export function moverOf(moves: number[]): { ply: number; side: Side } {
   return {
@@ -38,45 +20,15 @@ export function moverOf(moves: number[]): { ply: number; side: Side } {
 export function moveFact(
   moves: number[],
   col: number,
-  origin: string,
-  extra: Omit<MoveFact, "origin" | "col" | "ply" | "side"> = {},
+  name: string,
+  extra = "",
 ): MoveFact {
-  return { origin, col, ...moverOf(moves), ...extra };
-}
-
-export function factFromSolverReply(
-  moves: number[],
-  col: number,
-  reply: Pick<
-    Extract<WorkerRes, { type: "moved" }>,
-    "col" | "origin" | "score" | "nodes" | "micros" | "timedOut" | "moveScores"
-  >,
-): MoveFact {
-  const book = reply.moveScores?.[col];
-  const score =
-    reply.origin === "moveBook"
-      ? undefined
-      : book !== undefined && book !== INVALID
-        ? book
-        : reply.col === col && reply.score !== null && reply.score !== INVALID
-          ? reply.score
-          : undefined;
-  return moveFact(moves, col, reply.origin, {
-    score,
-    nodes: reply.nodes,
-    micros: reply.micros,
-    timedOut: reply.timedOut,
-  });
+  return { name, extra, col, ...moverOf(moves) };
 }
 
 export function formatMoveSelection(fact: MoveFact): string {
-  const label = ORIGIN_LABEL[fact.origin] ?? fact.origin;
-  const formatted =
-    fact.origin === "moveBook" || fact.score === undefined ? "" : ` ${formatScore(fact.score)}`;
-  const nps = hashesPerSecond(fact.nodes ?? 0, fact.micros ?? 0);
-  const npsPart = nps > 0 ? ` · ${nps} hashes/s` : "";
-  const timeout = fact.timedOut ? " timed out" : "";
-  return `ply ${fact.ply} ${fact.side} ${label}${formatted}${npsPart}${timeout}, column ${fact.col + 1}`;
+  const tail = fact.extra ? `, ${fact.extra}` : "";
+  return `ply ${fact.ply} ${fact.side} ${fact.name}, column ${fact.col + 1}${tail}`;
 }
 
 export function formatSearchReport(

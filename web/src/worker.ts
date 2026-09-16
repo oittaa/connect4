@@ -115,6 +115,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const nodes = engine.nodeCount();
         const micros = nodes === 0 ? 0 : engine.micros();
         const last = engine.lastMoveScores();
+        const extras = [0, 1, 2, 3, 4, 5, 6].map((c) => engine.debugExtra(moves, c));
         reply({
           id: msg.id,
           type: "moved",
@@ -127,6 +128,8 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           origin: engine.moveOrigin() || "search",
           score: col >= 0 && col < last.length && last[col] !== INVALID ? last[col] : null,
           fromMoveBook: engine.moveBookHit(),
+          extra: extras[col] ?? "",
+          extras,
         });
         break;
       }

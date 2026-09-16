@@ -50,6 +50,8 @@ export type WorkerRes =
       origin: string;
       score: number | null;
       fromMoveBook: boolean;
+      extra: string;
+      extras: string[];
     }
   | { id: number; type: "ttSaved" }
   | { id: number; type: "error"; message: string };

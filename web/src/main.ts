@@ -3,6 +3,7 @@ import {
   planComputer,
   resolveSolverColumn,
   seatFromFormValue,
+  type ComputerId,
   type ComputerPlan,
   type Seat,
 } from "./computers/index.ts";
@@ -29,7 +30,6 @@ import {
   type HintSessionEvent,
 } from "./game";
 import {
-  factFromSolverReply,
   formatSearchReport,
   moveFact,
   publishMoveSelection,
@@ -400,6 +400,7 @@ type PendingComputerTurn = {
   generation: number;
   moves: number[];
   plan: ComputerPlan;
+  engineName: ComputerId;
 };
 
 function cancelComputerMove(): void {
@@ -427,7 +428,12 @@ function scheduleComputer(): void {
     return;
   }
   if (plan.type === "solver") thinking = true;
-  const turn: PendingComputerTurn = { generation: cpuGeneration, moves, plan };
+  const turn: PendingComputerTurn = {
+    generation: cpuGeneration,
+    moves,
+    plan,
+    engineName: seat.computerId,
+  };
   if (plan.type === "local") {
     cpuTimer = window.setTimeout(() => { void executeComputerTurn(turn); }, delayMs);
   } else {
@@ -439,7 +445,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (computerTurnStale(turn.generation)) return;
   if (turn.plan.type === "local") {
     if (!gameOver()) {
-      const fact = moveFact(turn.moves, turn.plan.col, turn.plan.origin);
+      const fact = moveFact(turn.moves, turn.plan.col, turn.engineName, turn.plan.origin);
       applyMove(turn.plan.col);
       debugMove(fact);
     }
@@ -465,7 +471,8 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (col !== null && !gameOver()) {
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {
-        const fact = factFromSolverReply(turn.moves, col, r);
+        const extra = r.extras[col] ?? r.extra;
+        const fact = moveFact(turn.moves, col, turn.engineName, extra);
         applyMove(col);
         debugMove(fact);
       }

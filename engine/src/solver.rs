@@ -33,6 +33,16 @@ impl MoveOrigin {
     }
 }
 
+fn debug_score_text(score: i32) -> String {
+    if score == 0 {
+        "D".to_string()
+    } else if score > 0 {
+        format!("W{score}")
+    } else {
+        format!("L{}", -score)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct SolveResult {
     pub score: i32,
@@ -137,6 +147,57 @@ impl Solver {
     /// does not search. Valid only until the next call that resets stats.
     pub fn last_move_scores(&self) -> [i32; WIDTH] {
         self.last_move_scores
+    }
+
+    pub fn debug_extra(&self, pos: &Position, col: usize) -> String {
+        let label = match self.origin {
+            MoveOrigin::None => return String::new(),
+            MoveOrigin::MoveBook => "move book",
+            MoveOrigin::ScoreBook => "score book",
+            MoveOrigin::Tactical => "tactical",
+            MoveOrigin::Search => "search",
+        };
+        let mut extra = String::from(label);
+        if self.origin != MoveOrigin::MoveBook {
+            if let Some(score) = self.proven_debug_score(pos, col) {
+                extra.push(' ');
+                extra.push_str(&debug_score_text(score));
+            }
+        }
+        if self.origin == MoveOrigin::Search {
+            let micros = self.last_micros();
+            if self.nodes > 0 && micros > 0 {
+                let nps = ((self.nodes as f64 / micros as f64) * 1_000_000.0).round() as u64;
+                extra.push_str(&format!(" · {nps} hashes/s"));
+            }
+            if self.timed_out {
+                extra.push_str(" timed out");
+            }
+        }
+        extra
+    }
+
+    fn proven_debug_score(&self, pos: &Position, col: usize) -> Option<i32> {
+        if col >= WIDTH {
+            return None;
+        }
+        let last = self.last_move_scores[col];
+        if last != INVALID_MOVE {
+            return Some(last);
+        }
+        if self.origin != MoveOrigin::ScoreBook || !pos.can_play(col) {
+            return None;
+        }
+        if let Some(scores) = self.column_scores_from_score_book(pos) {
+            let score = scores[col];
+            return (score != INVALID_MOVE).then_some(score);
+        }
+        if pos.is_winning_move(col) {
+            return Some((AREA as i32 + 1 - pos.moves() as i32) / 2);
+        }
+        let mut child = *pos;
+        child.play_col(col);
+        self.score_book_score(&child).map(|s| -s)
     }
 
     pub fn set_timeout_ms(&mut self, ms: u32) {
@@ -1115,6 +1176,7 @@ mod tests {
             [INVALID_MOVE; WIDTH],
             "a move-book hit does not search"
         );
+        assert_eq!(solver.debug_extra(&covered, 3), "move book");
     }
 
     #[test]
@@ -1130,6 +1192,12 @@ mod tests {
         assert_eq!(solver.move_origin(), MoveOrigin::ScoreBook);
         assert_eq!(solver.last_score(), 1);
         assert_eq!(solver.last_move_scores()[3], 1);
+        assert_eq!(solver.debug_extra(&pos, 3), "score book W1");
+
+        let mut yellow = Position::new();
+        yellow.play_col(3);
+        assert_eq!(solver.select_move(yellow), Some(3));
+        assert_eq!(solver.debug_extra(&yellow, 3), "score book L1");
     }
 
     #[test]

@@ -116,6 +116,15 @@ impl WasmEngine {
         self.solver.move_origin().as_str().to_string()
     }
 
+    #[wasm_bindgen(js_name = debugExtra)]
+    pub fn debug_extra(&self, moves: &[u8], col: u8) -> String {
+        let mut p = Position::new();
+        if !p.play_moves(moves) {
+            return String::new();
+        }
+        self.solver.debug_extra(&p, col as usize)
+    }
+
     /// Unique 49-bit key as a string.
     pub fn key(&self, moves: &[u8]) -> Option<String> {
         let mut p = Position::new();
