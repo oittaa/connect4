@@ -150,7 +150,6 @@ function ready(id: number): WorkerRes {
     origin: "search",
     score: null,
     fromMoveBook: false,
-    extra: "",
   });
   const late = await client.request({ type: "analyze", moves: [] });
   assert(late.type === "error", "late moved after messageerror does not revive the client");

@@ -7,6 +7,7 @@ import { completeMoveScores, INVALID } from "./game";
 import type { WasmEngine } from "./pkg/engine.js";
 
 let engine: WasmEngine | null = null;
+let debug = false;
 
 async function boot(): Promise<WasmEngine> {
   const wasm = await import("./pkg/engine.js");
@@ -24,6 +25,7 @@ async function restoreTT(eng: WasmEngine): Promise<void> {
   try {
     const buf = await loadTT();
     if (buf) eng.ttLoad(buf);
+    if (debug) console.log(buf ? `TT loaded ${buf.byteLength} bytes` : "TT loaded (none)");
   } catch (e) {
     console.error("TT restore failed", e);
   }
@@ -32,7 +34,9 @@ async function restoreTT(eng: WasmEngine): Promise<void> {
 /** Called once per finished game, not after every search. */
 async function persistTT(eng: WasmEngine): Promise<void> {
   try {
-    await saveTT(eng.ttSave());
+    const data = eng.ttSave();
+    await saveTT(data);
+    if (debug) console.log(`TT saved ${data.byteLength} bytes`);
   } catch (e) {
     console.error("TT save failed", e);
   }
@@ -62,6 +66,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
   const reply = (r: WorkerRes) => (self as DedicatedWorkerGlobalScope).postMessage(r);
   try {
     if (msg.type === "init") {
+      debug = msg.debug === true;
       if (!engine) engine = await boot();
       engine.setTimeoutMs(msg.timeoutMs);
       await restoreTT(engine);
@@ -73,14 +78,28 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       return;
     }
     switch (msg.type) {
-      case "loadScoreBook":
-        if (!engine.loadScoreBook(new Uint8Array(msg.bytes))) throw new Error("Invalid score book");
+      case "loadScoreBook": {
+        const bytes = new Uint8Array(msg.bytes);
+        if (!engine.loadScoreBook(bytes)) throw new Error("Invalid score book");
+        if (debug) {
+          console.log(
+            `score book loaded ${engine.scoreBookLen()} positions (through move ${engine.scoreBookMoves()}), ${bytes.byteLength} bytes`,
+          );
+        }
         reply(ready(msg.id, engine));
         break;
-      case "loadMoveBook":
-        if (!engine.loadMoveBook(new Uint8Array(msg.bytes))) throw new Error("Invalid move book");
+      }
+      case "loadMoveBook": {
+        const bytes = new Uint8Array(msg.bytes);
+        if (!engine.loadMoveBook(bytes)) throw new Error("Invalid move book");
+        if (debug) {
+          console.log(
+            `move book loaded ${engine.moveBookPopulated()} moves (through move ${engine.moveBookMoves()}), ${bytes.byteLength} bytes`,
+          );
+        }
         reply(ready(msg.id, engine));
         break;
+      }
       case "clearDownloadedBooks":
         engine.clearScoreBook();
         engine.clearMoveBook();
@@ -127,8 +146,17 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           origin: engine.moveOrigin() || "search",
           score: col >= 0 && col < last.length && last[col] !== INVALID ? last[col] : null,
           fromMoveBook: engine.moveBookHit(),
-          extra: engine.debugExtra(moves, col),
         });
+        break;
+      }
+      case "debugExtra": {
+        const moves = u8(msg.moves);
+        const extra = engine.debugExtra(moves, msg.col);
+        const bestExtra =
+          msg.bestCol !== undefined && msg.bestCol !== msg.col
+            ? engine.debugExtra(moves, msg.bestCol)
+            : undefined;
+        reply({ id: msg.id, type: "debugExtra", extra, bestExtra });
         break;
       }
       case "saveTT":

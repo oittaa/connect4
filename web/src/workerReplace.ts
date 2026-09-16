@@ -14,6 +14,7 @@ export type SpawnedWorker = {
 export type WorkerReplaceHost = {
   spawn(): SpawnedWorker;
   initTimeoutMs(): number;
+  debug?(): boolean;
   onReplaceStart(): void;
   restoreBooks(client: EngineClient, ready: WorkerRes): Promise<void>;
   afterReady(): void;
@@ -49,7 +50,11 @@ export function createWorkerReplace(host: WorkerReplaceHost) {
       old.client.fail(WORKER_REPLACED);
       old.terminate();
       current = host.spawn();
-      const r = await current.client.request({ type: "init", timeoutMs: host.initTimeoutMs() });
+      const r = await current.client.request({
+        type: "init",
+        timeoutMs: host.initTimeoutMs(),
+        debug: host.debug?.() === true,
+      });
       if (host.isEngineFailed()) return;
       if (r.type !== "ready") {
         current.client.fail();

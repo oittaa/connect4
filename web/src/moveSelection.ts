@@ -8,6 +8,8 @@ export type MoveFact = {
   col: number;
   ply: number;
   side: Side;
+  bestCol?: number;
+  bestExtra?: string;
 };
 
 export function moverOf(moves: number[]): { ply: number; side: Side } {
@@ -22,13 +24,24 @@ export function moveFact(
   col: number,
   name: string,
   extra = "",
+  best?: { col: number; extra: string },
 ): MoveFact {
-  return { name, extra, col, ...moverOf(moves) };
+  const fact: MoveFact = { name, extra, col, ...moverOf(moves) };
+  if (best !== undefined && best.col !== col) {
+    fact.bestCol = best.col;
+    fact.bestExtra = best.extra;
+  }
+  return fact;
 }
 
 export function formatMoveSelection(fact: MoveFact): string {
-  const tail = fact.extra ? `, ${fact.extra}` : "";
-  return `ply ${fact.ply} ${fact.side} ${fact.name}, column ${fact.col + 1}${tail}`;
+  let line = `ply ${fact.ply} ${fact.side} ${fact.name}, column ${fact.col + 1}`;
+  if (fact.extra) line += `, ${fact.extra}`;
+  if (fact.bestCol !== undefined) {
+    line += `, best column ${fact.bestCol + 1}`;
+    if (fact.bestExtra) line += `, ${fact.bestExtra}`;
+  }
+  return line;
 }
 
 export function formatSearchReport(

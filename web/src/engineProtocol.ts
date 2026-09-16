@@ -10,13 +10,14 @@ export type CompleteColumnScores = [
 ];
 
 export type WorkerReq =
-  | { id: number; type: "init"; timeoutMs: number }
+  | { id: number; type: "init"; timeoutMs: number; debug?: boolean }
   | { id: number; type: "loadScoreBook"; bytes: ArrayBuffer }
   | { id: number; type: "loadMoveBook"; bytes: ArrayBuffer }
   | { id: number; type: "clearDownloadedBooks" }
   | { id: number; type: "analyze"; moves: number[] }
   | { id: number; type: "availableScores"; moves: number[] }
   | { id: number; type: "bestMove"; moves: number[] }
+  | { id: number; type: "debugExtra"; moves: number[]; col: number; bestCol?: number }
   | { id: number; type: "saveTT" };
 
 export type WorkerRes =
@@ -50,7 +51,7 @@ export type WorkerRes =
       origin: string;
       score: number | null;
       fromMoveBook: boolean;
-      extra: string;
     }
+  | { id: number; type: "debugExtra"; extra: string; bestExtra?: string }
   | { id: number; type: "ttSaved" }
   | { id: number; type: "error"; message: string };

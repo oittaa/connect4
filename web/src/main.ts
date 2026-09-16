@@ -175,6 +175,7 @@ const workerSession = createWorkerReplace({
     };
   },
   initTimeoutMs,
+  debug: isDebugMode,
   onReplaceStart() {
     engineReady = false;
   },
@@ -469,9 +470,25 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (col === null || gameOver()) thinking = false;
   renderBoard(false);
   if (col !== null && !gameOver()) {
+    let extra = "";
+    let best: { col: number; extra: string } | undefined;
+    if (isDebugMode()) {
+      const wantBest = col !== r.col && r.col >= 0 && r.col < WIDTH;
+      const x = await send({
+        type: "debugExtra",
+        moves: turn.moves,
+        col,
+        bestCol: wantBest ? r.col : undefined,
+      });
+      if (computerTurnStale(turn.generation)) return;
+      if (x.type === "debugExtra") {
+        extra = x.extra;
+        if (wantBest) best = { col: r.col, extra: x.bestExtra ?? "" };
+      }
+    }
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {
-        const fact = moveFact(turn.moves, col, turn.engineName, r.extra);
+        const fact = moveFact(turn.moves, col, turn.engineName, extra, best);
         applyMove(col);
         debugMove(fact);
       }
@@ -756,6 +773,7 @@ renderBoard(false);
 void send({
   type: "init",
   timeoutMs: initTimeoutMs(),
+  debug: isDebugMode(),
 }).then(async (r) => {
   onReady(r);
   if (new URLSearchParams(location.search).has("bench") && engineReady) {
