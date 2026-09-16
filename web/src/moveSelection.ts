@@ -49,17 +49,18 @@ export function factFromSolverReply(
   col: number,
   reply: Pick<
     Extract<WorkerRes, { type: "moved" }>,
-    "origin" | "score" | "nodes" | "micros" | "timedOut" | "moveScores" | "hintScores"
+    "col" | "origin" | "score" | "nodes" | "micros" | "timedOut" | "moveScores"
   >,
 ): MoveFact {
-  const hint = reply.hintScores[col];
   const book = reply.moveScores?.[col];
   const score =
-    hint !== undefined && hint !== INVALID
-      ? hint
+    reply.origin === "moveBook"
+      ? undefined
       : book !== undefined && book !== INVALID
         ? book
-        : reply.score ?? undefined;
+        : reply.col === col && reply.score !== null && reply.score !== INVALID
+          ? reply.score
+          : undefined;
   return moveFact(moves, col, reply.origin, {
     score,
     nodes: reply.nodes,
@@ -70,7 +71,8 @@ export function factFromSolverReply(
 
 export function formatMoveSelection(fact: MoveFact): string {
   const label = ORIGIN_LABEL[fact.origin] ?? fact.origin;
-  const formatted = fact.score === undefined ? "" : ` ${formatScore(fact.score)}`;
+  const formatted =
+    fact.origin === "moveBook" || fact.score === undefined ? "" : ` ${formatScore(fact.score)}`;
   const nps = hashesPerSecond(fact.nodes ?? 0, fact.micros ?? 0);
   const npsPart = nps > 0 ? ` · ${nps} hashes/s` : "";
   const timeout = fact.timedOut ? " timed out" : "";
