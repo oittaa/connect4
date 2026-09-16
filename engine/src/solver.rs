@@ -1306,6 +1306,34 @@ mod tests {
     }
 
     #[test]
+    fn a_move_book_miss_does_not_change_searched_nodes() {
+        // 9-ply: in move-book range, not in the 8-ply score book.
+        let in_range = position("265756512");
+        // 14-ply: past a 12-move book, so every negamax node misses.
+        let past = position("17516442226766");
+        let empty = MoveBook::empty(11).unwrap();
+        for pos in [in_range, past] {
+            let mut baseline = Solver::with_tt_log(20);
+            baseline
+                .load_score_book(include_bytes!("../../books/8ply.c4book"))
+                .unwrap();
+            let without = baseline.solve(pos);
+
+            let mut with_miss = Solver::with_tt_log(20);
+            with_miss
+                .load_score_book(include_bytes!("../../books/8ply.c4book"))
+                .unwrap();
+            with_miss.set_move_book(empty.clone());
+            let with = with_miss.solve(pos);
+
+            assert_eq!(with.score, without.score, "seq ply {}", pos.moves());
+            assert_eq!(with.nodes, without.nodes, "seq ply {}", pos.moves());
+            assert!(!with.timed_out && !without.timed_out);
+            assert!(without.nodes > 0, "position must actually search");
+        }
+    }
+
+    #[test]
     fn column_scores_from_embedded_score_book_match_empty_board_analysis() {
         let solver = Solver::new();
         let scores = solver
