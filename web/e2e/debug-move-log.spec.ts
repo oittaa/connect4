@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
-const MOVE_LOG = /^(score book|move book|engine|tactical|forced|random)\b/;
+const MOVE_LOG = /^(score book|move book|engine|tactical|forced|random|human)\b/;
 
 function collectMoveLogs(page: Page): string[] {
   const logs: string[] = [];
@@ -29,7 +29,7 @@ async function waitBooks(page: Page): Promise<void> {
   await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
 }
 
-test("DEBUG Perfect opening logs a score-book hit with the score", async ({ page }) => {
+test("DEBUG Perfect opening logs a score-book hit with ply and side", async ({ page }) => {
   const logs = collectMoveLogs(page);
   await page.goto("/connect4/#DEBUG");
   await waitSolver(page);
@@ -38,7 +38,7 @@ test("DEBUG Perfect opening logs a score-book hit with the score", async ({ page
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(1);
-  expect(logs.join("\n")).toMatch(/^score book W1 \(column 4\)$/m);
+  expect(logs.join("\n")).toMatch(/^score book W1 \(ply 1, Red, column 4\)$/m);
 });
 
 test("DEBUG Perfect at ply 10 logs a move-book hit", async ({ page }) => {
@@ -50,7 +50,7 @@ test("DEBUG Perfect at ply 10 logs a move-book hit", async ({ page }) => {
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(11);
-  expect(logs.join("\n")).toMatch(/^move book \(column [1-7]\)$/m);
+  expect(logs.join("\n")).toMatch(/^move book \(ply 11, Red, column [1-7]\)$/m);
   expect(logs.join("\n")).not.toMatch(/^(engine|score book)\b/m);
 });
 
@@ -65,7 +65,7 @@ test("DEBUG Perfect past the embedded score book logs engine hashes/s", async ({
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(5);
-  expect(logs.join("\n")).toMatch(/^engine .*hashes\/s/m);
+  expect(logs.join("\n")).toMatch(/^engine .*hashes\/s.*\(ply 5, Red, column [1-7]\)$/m);
 });
 
 test("DEBUG Easy logs a random local drop", async ({ page }) => {
@@ -75,7 +75,7 @@ test("DEBUG Easy logs a random local drop", async ({ page }) => {
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="easy"]').check();
   await expect(page.locator(".disc")).toHaveCount(1);
-  expect(logs.join("\n")).toMatch(/^random \(column [1-7]\)$/m);
+  expect(logs.join("\n")).toMatch(/^random \(ply 1, Red, column [1-7]\)$/m);
 });
 
 test("DEBUG Easy logs a forced win", async ({ page }) => {
@@ -85,14 +85,28 @@ test("DEBUG Easy logs a forced win", async ({ page }) => {
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="easy"]').check();
   await expect(page.locator(".disc")).toHaveCount(7);
-  expect(logs.join("\n")).toMatch(/^forced \(column 1\)$/m);
+  expect(logs.join("\n")).toMatch(/^forced \(ply 7, Red, column 1\)$/m);
 });
 
-test("without DEBUG a computer move does not log selection", async ({ page }) => {
+test("DEBUG human drops log ply and side", async ({ page }) => {
+  const logs = collectMoveLogs(page);
+  await page.goto("/connect4/#DEBUG");
+  await waitSolver(page);
+  await page.locator('#board [data-col="3"]').click();
+  await expect(page.locator(".disc")).toHaveCount(1);
+  expect(logs.join("\n")).toMatch(/^human \(ply 1, Red, column 4\)$/m);
+  await page.locator('#board [data-col="2"]').click();
+  await expect(page.locator(".disc")).toHaveCount(2);
+  expect(logs.join("\n")).toMatch(/^human \(ply 2, Yellow, column 3\)$/m);
+});
+
+test("without DEBUG neither computer nor human moves log selection", async ({ page }) => {
   const logs = collectMoveLogs(page);
   await page.goto("/connect4/");
   await setPace(page, 0);
-  await page.locator('input[name="role0"][value="easy"]').check();
+  await page.locator('#board [data-col="3"]').click();
   await expect(page.locator(".disc")).toHaveCount(1);
+  await page.locator('input[name="role1"][value="easy"]').check();
+  await expect(page.locator(".disc")).toHaveCount(2);
   expect(logs).toEqual([]);
 });

@@ -28,7 +28,7 @@ import {
   type HintSessionContext,
   type HintSessionEvent,
 } from "./game";
-import { describeLocalMove, describeSolverMove, logMoveSelection } from "./moveSelectionLog";
+import { describeHumanMove, describeLocalMove, describeSolverMove, logMoveSelection } from "./moveSelectionLog";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
@@ -330,6 +330,7 @@ function tryDrop(col: number): void {
   if (currentSeat().kind !== "human") return;
   const g = playMoves(played());
   if (g.height[col] >= HEIGHT) return;
+  logMoveSelection(isDebugMode(), describeHumanMove(played(), col));
   applyMove(col);
 }
 
@@ -450,7 +451,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (col !== null && !gameOver()) {
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {
-        logMoveSelection(isDebugMode(), describeSolverMove(col, r));
+        logMoveSelection(isDebugMode(), describeSolverMove(col, r, turn.moves));
         applyMove(col);
       }
     }, delayMs);
