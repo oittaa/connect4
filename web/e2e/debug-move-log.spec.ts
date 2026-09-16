@@ -39,7 +39,7 @@ test("DEBUG Perfect opening logs a move-book hit with ply and side", async ({ pa
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(1);
   const line = "move book (ply 1, Red, column 4)";
-  expect(logs.join("\n")).toMatch(new RegExp(`^${line}$`, "m"));
+  expect(logs).toContain(line);
   await expect(page.locator("#engine-line")).toHaveText(line);
 });
 
@@ -55,7 +55,7 @@ test("DEBUG Perfect with only the embedded score book logs the score", async ({ 
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(1);
   const line = "score book W1 (ply 1, Red, column 4)";
-  expect(logs.join("\n")).toMatch(new RegExp(`^${line}$`, "m"));
+  expect(logs).toContain(line);
   await expect(page.locator("#engine-line")).toHaveText(line);
 });
 
