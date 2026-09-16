@@ -38,7 +38,7 @@ test("DEBUG Perfect opening logs a score-book hit with the score", async ({ page
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(1);
-  expect(logs.some((line) => /^score book W1 \(column 4\)$/.test(line))).toBe(true);
+  expect(logs.join("\n")).toMatch(/^score book W1 \(column 4\)$/m);
 });
 
 test("DEBUG Perfect at ply 10 logs a move-book hit", async ({ page }) => {
@@ -50,8 +50,8 @@ test("DEBUG Perfect at ply 10 logs a move-book hit", async ({ page }) => {
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(11);
-  expect(logs.some((line) => /^move book \(column [1-7]\)$/.test(line))).toBe(true);
-  expect(logs.some((line) => line.startsWith("engine") || line.startsWith("score book"))).toBe(false);
+  expect(logs.join("\n")).toMatch(/^move book \(column [1-7]\)$/m);
+  expect(logs.join("\n")).not.toMatch(/^(engine|score book)\b/m);
 });
 
 test("DEBUG Perfect past the embedded score book logs engine hashes/s", async ({ page }) => {
@@ -65,26 +65,27 @@ test("DEBUG Perfect past the embedded score book logs engine hashes/s", async ({
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="perfect"]').check();
   await expect(page.locator(".disc")).toHaveCount(5);
-  expect(logs.some((line) => /^engine .*hashes\/s/.test(line))).toBe(true);
+  expect(logs.join("\n")).toMatch(/^engine .*hashes\/s/m);
 });
 
-test("DEBUG Easy logs random and forced local paths", async ({ page }) => {
+test("DEBUG Easy logs a random local drop", async ({ page }) => {
   const logs = collectMoveLogs(page);
   await page.goto("/connect4/#DEBUG");
   await waitSolver(page);
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="easy"]').check();
   await expect(page.locator(".disc")).toHaveCount(1);
-  expect(logs.some((line) => /^random \(column [1-7]\)$/.test(line))).toBe(true);
+  expect(logs.join("\n")).toMatch(/^random \(column [1-7]\)$/m);
+});
 
-  await page.locator("#new").click();
+test("DEBUG Easy logs a forced win", async ({ page }) => {
+  const logs = collectMoveLogs(page);
   await page.goto("/connect4/#moves=121314&DEBUG");
   await waitSolver(page);
   await setPace(page, 0);
-  logs.length = 0;
   await page.locator('input[name="role0"][value="easy"]').check();
   await expect(page.locator(".disc")).toHaveCount(7);
-  expect(logs.some((line) => line === "forced (column 1)")).toBe(true);
+  expect(logs.join("\n")).toMatch(/^forced \(column 1\)$/m);
 });
 
 test("without DEBUG a computer move does not log selection", async ({ page }) => {

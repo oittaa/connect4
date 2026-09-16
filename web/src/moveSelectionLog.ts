@@ -36,20 +36,22 @@ export function describeLocalMove(moves: number[], col: number): MoveSelection {
 }
 
 /**
- * Classify a computer column from the solver reply. Move-book hits win even
- * when score-book column scores are also present (Perfect may resample).
- * Instant non-book replies with complete score-book columns are score-book
- * hits; other 0-node replies are tactical (immediate win / threat).
+ * Classify a computer column from the solver reply.
+ *
+ * Complete score-book column scores are how Perfect/Medium pick among equals
+ * (even when the engine also had a move-book hit). A move-book hit without
+ * those scores is a compact-book column. Other 0-node replies are tactical
+ * (immediate win / threat). Anything that searched is engine.
  */
 export function describeSolverMove(col: number, reply: SolverSelectionReply): MoveSelection {
-  if (reply.fromMoveBook) return { source: "move book", col };
-
   const bookScore = knownScore(col, reply.moveScores);
   const searchScore = knownScore(col, reply.hintScores);
+
+  if (reply.moveScores !== null) {
+    return { source: "score book", col, score: bookScore ?? searchScore };
+  }
+  if (reply.fromMoveBook) return { source: "move book", col };
   if (reply.nodes === 0 && !reply.timedOut) {
-    if (reply.moveScores !== null) {
-      return { source: "score book", col, score: bookScore ?? searchScore };
-    }
     return { source: "tactical", col, score: searchScore ?? bookScore };
   }
 

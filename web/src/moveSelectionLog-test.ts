@@ -51,8 +51,13 @@ same(
 
 same(
   describeSolverMove(3, reply({ fromMoveBook: true, moveScores: emptyBook })),
-  { source: "move book", col: 3 },
-  "move-book hit wins even when score-book columns are present",
+  { source: "score book", col: 3, score: 1 },
+  "complete score-book columns are a score-book pick even on a move-book hit",
+);
+same(
+  describeSolverMove(4, reply({ fromMoveBook: true })),
+  { source: "move book", col: 4 },
+  "move-book hit without complete scores is a move-book pick",
 );
 
 same(
