@@ -28,6 +28,7 @@ import {
   type HintSessionContext,
   type HintSessionEvent,
 } from "./game";
+import { describeLocalMove, describeSolverMove, logMoveSelection } from "./moveSelectionLog";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
 import type { WorkerRes } from "./engineProtocol";
@@ -421,7 +422,10 @@ function scheduleComputer(): void {
 async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (computerTurnStale(turn.generation)) return;
   if (turn.plan.type === "local") {
-    if (!gameOver()) applyMove(turn.plan.col);
+    if (!gameOver()) {
+      logMoveSelection(isDebugMode(), describeLocalMove(turn.moves, turn.plan.col));
+      applyMove(turn.plan.col);
+    }
     return;
   }
   const r = await send({ type: "bestMove", moves: turn.moves });
@@ -445,7 +449,10 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   // Let the current position's hints remain visible for the chosen pace.
   if (col !== null && !gameOver()) {
     cpuTimer = window.setTimeout(() => {
-      if (!computerTurnStale(turn.generation) && !gameOver()) applyMove(col);
+      if (!computerTurnStale(turn.generation) && !gameOver()) {
+        logMoveSelection(isDebugMode(), describeSolverMove(col, r));
+        applyMove(col);
+      }
     }, delayMs);
   }
 }
