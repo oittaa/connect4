@@ -1,9 +1,8 @@
-import type { CompleteColumnScores, WorkerRes } from "./engineProtocol.ts";
+import type { WorkerRes } from "./engineProtocol.ts";
 import { formatScore, INVALID, toMove } from "./game.ts";
 
 export type Side = "Red" | "Yellow";
 
-/** Structured origin from a computer engine or a human seat. Unknown strings print as-is. */
 export type MoveFact = {
   origin: string;
   col: number;
@@ -25,11 +24,10 @@ const ORIGIN_LABEL: Record<string, string> = {
   search: "engine",
 };
 
-export function hashesPerSecond(nodes: number, micros: number): number {
+function hashesPerSecond(nodes: number, micros: number): number {
   return micros > 0 ? Math.round((nodes / micros) * 1_000_000) : 0;
 }
 
-/** Who is about to drop, using the same Red/Yellow names as the status line. */
 export function moverOf(moves: number[]): { ply: number; side: Side } {
   return {
     ply: moves.length + 1,
@@ -46,46 +44,39 @@ export function moveFact(
   return { origin, col, ...moverOf(moves), ...extra };
 }
 
-/** Score of the played column, from that side. Never the search target. */
-export function scoreOfPlayedColumn(
-  col: number,
-  moveScores: CompleteColumnScores | null | undefined,
-  hintScores: number[] | undefined,
-): number | undefined {
-  const hint = hintScores?.[col];
-  if (hint !== undefined && hint !== INVALID) return hint;
-  const book = moveScores?.[col];
-  if (book !== undefined && book !== INVALID) return book;
-  return undefined;
-}
-
 export function factFromSolverReply(
   moves: number[],
   col: number,
   reply: Pick<
     Extract<WorkerRes, { type: "moved" }>,
-    "origin" | "nodes" | "micros" | "timedOut" | "moveScores" | "hintScores"
+    "origin" | "score" | "nodes" | "micros" | "timedOut" | "moveScores" | "hintScores"
   >,
 ): MoveFact {
+  const hint = reply.hintScores[col];
+  const book = reply.moveScores?.[col];
+  const score =
+    hint !== undefined && hint !== INVALID
+      ? hint
+      : book !== undefined && book !== INVALID
+        ? book
+        : reply.score ?? undefined;
   return moveFact(moves, col, reply.origin, {
-    score: scoreOfPlayedColumn(col, reply.moveScores, reply.hintScores),
+    score,
     nodes: reply.nodes,
     micros: reply.micros,
     timedOut: reply.timedOut,
   });
 }
 
-/** One line for the DEBUG footer and for console.log. */
 export function formatMoveSelection(fact: MoveFact): string {
   const label = ORIGIN_LABEL[fact.origin] ?? fact.origin;
-  const score = fact.score === undefined ? "" : ` ${formatScore(fact.score)}`;
+  const formatted = fact.score === undefined ? "" : ` ${formatScore(fact.score)}`;
   const nps = hashesPerSecond(fact.nodes ?? 0, fact.micros ?? 0);
   const npsPart = nps > 0 ? ` · ${nps} hashes/s` : "";
   const timeout = fact.timedOut ? " timed out" : "";
-  return `ply ${fact.ply} ${fact.side} ${label}${score}${npsPart}${timeout}, column ${fact.col + 1}`;
+  return `ply ${fact.ply} ${fact.side} ${label}${formatted}${npsPart}${timeout}, column ${fact.col + 1}`;
 }
 
-/** DEBUG footer line for `analyze` (not a played move). */
 export function formatSearchReport(
   nodes: number,
   micros: number,

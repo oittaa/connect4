@@ -462,7 +462,6 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
     : null;
   if (col === null || gameOver()) thinking = false;
   renderBoard(false);
-  // Log once, after the disc is on the board, so ply/column match the URL.
   if (col !== null && !gameOver()) {
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {

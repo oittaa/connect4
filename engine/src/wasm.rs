@@ -111,10 +111,7 @@ impl WasmEngine {
         self.solver.move_book_hit()
     }
 
-    /// How `bestMove` chose its column: `moveBook`, `scoreBook`, `tactical`, or `search`.
-    /// Not a `*Score` js_name: wasm-bindgen would expose a `score` property
-    /// whose missing setter throws `engine.setScore is not a function`.
-    #[wasm_bindgen(js_name = selectionOrigin)]
+    #[wasm_bindgen(js_name = moveOrigin)]
     pub fn move_origin(&self) -> String {
         self.solver.move_origin().as_str().to_string()
     }

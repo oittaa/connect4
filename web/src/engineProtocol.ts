@@ -47,14 +47,7 @@ export type WorkerRes =
       nodes: number;
       micros: number;
       timedOut: boolean;
-      /** How the engine chose `col`: `moveBook`, `scoreBook`, `tactical`, `search`, or a future path. */
       origin: string;
-      /**
-       * Score of the engine's `col` from `lastMoveScores`, or null when that
-       * column was not proven (move book, or a column the search skipped).
-       * Not the search target. The UI logs the played column, which Medium
-       * may choose differently.
-       */
       score: number | null;
       fromMoveBook: boolean;
     }

@@ -11,8 +11,6 @@ use std::time::{Duration, Instant};
 const COLUMN_ORDER: [usize; WIDTH] = [3, 4, 2, 5, 1, 6, 0];
 pub const INVALID_MOVE: i32 = -1000;
 
-/// How `select_move` / `best_move` chose a column. The web UI prints this
-/// instead of reconstructing a source from leftover stats.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MoveOrigin {
     #[default]
@@ -57,8 +55,6 @@ pub struct Solver {
     tt_log: u32,
     move_book_hit: bool,
     origin: MoveOrigin,
-    /// Parent score from the most recent `best_move`/`select_move`. `INVALID_MOVE`
-    /// on a move-book hit (no score search) or before the first call.
     last_score: i32,
     /// Column scores from the most recent `best_move`/`select_move` call.
     /// `INVALID_MOVE` for columns that search did not need to visit. Not

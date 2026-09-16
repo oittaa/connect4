@@ -46,18 +46,6 @@ function bestMoveHintScores(eng: WasmEngine, moves: Uint8Array): number[] {
   return known.map((k, i) => (last[i] !== INVALID ? last[i] : k));
 }
 
-/** Origin of the last `bestMove`. Never call `lastScore` — that js_name
- * makes wasm-bindgen throw `engine.setScore is not a function`. */
-function engineOrigin(eng: WasmEngine): string {
-  const api = eng as WasmEngine & {
-    selectionOrigin?: () => string;
-    moveOrigin?: () => string;
-  };
-  if (typeof api.selectionOrigin === "function") return api.selectionOrigin() || "search";
-  if (typeof api.moveOrigin === "function") return api.moveOrigin() || "search";
-  return "search";
-}
-
 function ready(id: number, eng: WasmEngine): WorkerRes {
   return {
     id,
@@ -127,7 +115,6 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         const nodes = engine.nodeCount();
         const micros = nodes === 0 ? 0 : engine.micros();
         const last = engine.lastMoveScores();
-        const playedScore = col >= 0 && col < last.length && last[col] !== INVALID ? last[col] : null;
         reply({
           id: msg.id,
           type: "moved",
@@ -137,8 +124,8 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           nodes,
           micros,
           timedOut: engine.timedOut(),
-          origin: engineOrigin(engine),
-          score: playedScore,
+          origin: engine.moveOrigin() || "search",
+          score: col >= 0 && col < last.length && last[col] !== INVALID ? last[col] : null,
           fromMoveBook: engine.moveBookHit(),
         });
         break;
