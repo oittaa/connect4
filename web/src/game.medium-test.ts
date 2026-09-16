@@ -1,7 +1,7 @@
 // Deterministic Medium and computer-turn policy checks. Run: npm test
 
 import { computers, planComputer, resolveSolverColumn, type ComputerId } from "./computers/index.ts";
-import type { CompleteColumnScores } from "./engineProtocol.ts";
+import { NO_COLUMN, type CompleteColumnScores } from "./engineProtocol.ts";
 import {
   INVALID,
   analysisScoreClass,
@@ -96,7 +96,7 @@ assert(
   "Perfect unique best does not leak to second-best",
 );
 assert(afterEngine("perfect", [], 3, null, () => 0) === 3, "Perfect ignores missing scores");
-assert(afterEngine("perfect", [], 255, null, () => 0) === 0, "invalid Perfect column falls back to a legal Easy pick");
+assert(afterEngine("perfect", [], NO_COLUMN, null, () => 0) === 0, "invalid Perfect column falls back to a legal Easy pick");
 assert(afterEngine("perfect", [], 0, tiedBest, seq([0])) === 1, "Perfect first best-tier tie");
 assert(afterEngine("perfect", [], 0, tiedBest, seq([0.99])) === 2, "Perfect last best-tier tie");
 const allTie: CompleteColumnScores = [-1, -1, -1, -1, -1, -1, -1];
@@ -148,11 +148,11 @@ same(provenBestColumns(timeoutPartial, emptyHeights, false), [], "partial array 
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 3), [2, 3], "a proven best-move column certifies equal exact scores");
 same(provenBestColumns(timeoutPartial, emptyHeights, true, 3), [], "an aborted best-move search cannot certify an optimum");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 0), [], "unknown scores cannot become best through a fallback column");
-same(provenBestColumns(timeoutPartial, emptyHeights, false, 255), [], "invalid engine column cannot certify an optimum");
+same(provenBestColumns(timeoutPartial, emptyHeights, false, NO_COLUMN), [], "invalid engine column cannot certify an optimum");
 const bookFrontier = [INVALID, INVALID, INVALID, INVALID, INVALID, 1, INVALID];
 same(provenBestColumns(bookFrontier, emptyHeights, false, 5), [5], "a certified book column highlights without full scores");
 same(provenBestColumns(null, emptyHeights, false, undefined, 3), [3], "a bare book suggestion highlights before scores arrive");
-same(provenBestColumns(null, emptyHeights, false, undefined, 255), [], "an invalid book suggestion is ignored");
+same(provenBestColumns(null, emptyHeights, false, undefined, NO_COLUMN), [], "an invalid book suggestion is ignored");
 same(provenBestColumns(timeoutPartial, emptyHeights, true, undefined, 3), [3], "a timeout keeps the book suggestion");
 same(provenBestColumns(emptyScores, emptyHeights, false), [3], "completed analysis highlights the best");
 same(provenBestColumns(emptyScores, emptyHeights, true), [], "timedOut book-looking array has no best highlight");

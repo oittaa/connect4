@@ -2,7 +2,7 @@
 /// <reference types="vite/client" />
 
 import { loadTT, saveTT } from "./cache";
-import type { WorkerReq, WorkerRes } from "./engineProtocol";
+import { NO_COLUMN, type WorkerReq, type WorkerRes } from "./engineProtocol";
 import { completeMoveScores } from "./game";
 import type { WasmEngine } from "./pkg/engine.js";
 
@@ -87,7 +87,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           id: msg.id,
           type: "availableScores",
           scores: preview.slice(0, 7),
-          moveBookCol: preview[7] ?? 255,
+          moveBookCol: preview[7] ?? NO_COLUMN,
         });
         break;
       }
@@ -102,7 +102,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           nodes: engine.nodeCount(),
           micros: engine.micros(),
           timedOut: engine.timedOut(),
-          ...(proven === 255 ? {} : { provenCol: proven }),
+          ...(proven === NO_COLUMN ? {} : { provenCol: proven }),
         });
         break;
       }

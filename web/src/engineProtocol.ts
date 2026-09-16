@@ -1,3 +1,10 @@
+/**
+ * "No column" sentinel for 0-based column results crossing the WASM
+ * boundary (legal columns are 0-6). Mirrors `NO_COLUMN` in the engine's
+ * `wasm` module; the two must stay in sync.
+ */
+export const NO_COLUMN = 255;
+
 /** Indexed by column. `INVALID` (-1000) marks a full column. */
 export type CompleteColumnScores = [
   number,
@@ -24,7 +31,7 @@ export type WorkerRes =
       id: number;
       type: "availableScores";
       scores: number[];
-      /** 0-based move-book suggestion, or 255 if none. Uncertified preview. */
+      /** 0-based move-book suggestion, or `NO_COLUMN` if none. Uncertified preview. */
       moveBookCol: number;
     }
   | {

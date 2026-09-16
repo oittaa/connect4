@@ -2,6 +2,11 @@ use crate::position::Position;
 use crate::solver::{Solver, INVALID_MOVE};
 use wasm_bindgen::prelude::*;
 
+/// "No column" sentinel for 0-based column results crossing the WASM
+/// boundary (legal columns are 0-6). Mirrors `NO_COLUMN` in the web
+/// `engineProtocol` module; the two must stay in sync.
+const NO_COLUMN: u8 = 255;
+
 #[wasm_bindgen]
 pub struct WasmEngine {
     solver: Solver,
@@ -77,19 +82,19 @@ impl WasmEngine {
 
     /// Instant hint preview in one call: seven search-free column scores
     /// (`INVALID_MOVE` where unknown) plus the uncertified move-book
-    /// suggestion (255 if none), shown as `?` until analysis scores it.
+    /// suggestion (`NO_COLUMN` if none), shown as `?` until analysis scores it.
     /// Read-only: no search, stats unchanged.
     #[wasm_bindgen(js_name = previewScores)]
     pub fn preview_scores(&self, moves: &[u8]) -> Vec<i16> {
         let mut p = Position::new();
         if !p.play_moves(moves) {
             let mut out = vec![INVALID_MOVE as i16; 7];
-            out.push(255);
+            out.push(NO_COLUMN as i16);
             return out;
         }
         let (scores, book) = self.solver.hint_preview(&p);
         let mut out: Vec<i16> = scores.iter().map(|&s| s as i16).collect();
-        out.push(book.map(|c| c as i16).unwrap_or(255));
+        out.push(book.map(|c| c as i16).unwrap_or(NO_COLUMN as i16));
         out
     }
 
@@ -152,14 +157,15 @@ impl WasmEngine {
             .collect()
     }
 
-    /// 0-based column proved optimal by the last `analyze`/`bestMove`, or 255.
-    /// A bare move-book suggestion never appears here; only a real proof does.
+    /// 0-based column proved optimal by the last `analyze`/`bestMove`, or
+    /// `NO_COLUMN`. A bare move-book suggestion never appears here; only a
+    /// real proof does.
     #[wasm_bindgen(js_name = lastProvenCol)]
     pub fn last_proven_col(&self) -> u8 {
         self.solver
             .last_proven_col()
             .map(|c| c as u8)
-            .unwrap_or(255)
+            .unwrap_or(NO_COLUMN)
     }
 
     pub fn solve(&mut self, moves: &[u8]) -> i8 {
@@ -179,15 +185,18 @@ impl WasmEngine {
         self.solver.analyze(p).iter().map(|&s| s as i16).collect()
     }
 
-    /// 0-based column, or 255 if none.
+    /// 0-based column, or `NO_COLUMN` if none.
     #[wasm_bindgen(js_name = bestMove)]
     pub fn best_move(&mut self, moves: &[u8]) -> u8 {
         self.solver.reset_nodes();
         let mut p = Position::new();
         if !p.play_moves(moves) {
-            return 255;
+            return NO_COLUMN;
         }
-        self.solver.select_move(p).map(|c| c as u8).unwrap_or(255)
+        self.solver
+            .select_move(p)
+            .map(|c| c as u8)
+            .unwrap_or(NO_COLUMN)
     }
 
     pub fn micros(&self) -> f64 {
