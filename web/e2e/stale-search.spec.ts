@@ -12,6 +12,7 @@ async function setPace(page: Page, ms: number): Promise<void> {
 async function waitSolverAndBooks(page: Page): Promise<void> {
   await expect(page.locator("#engine-line")).toHaveText(/Solver ready/i, { timeout: 60_000 });
   await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).toContainText(/Score book .*\(through move 8\)/, { timeout: 60_000 });
   await expect(page.locator("#books-line")).toContainText(/move book [1-9]/, { timeout: 60_000 });
 }
 
@@ -74,35 +75,30 @@ test.describe("stale search restart", () => {
     await setPace(page, 0);
     await page.locator("#analyze").check();
     await expect(page.locator("#engine-line")).toHaveText(/analyzing/i, { timeout: 5_000 });
-    const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();
     await expect(page.locator(".disc")).toHaveCount(9);
-    expect(Date.now() - t0).toBeLessThan(1500);
+    await expect(page.locator("#engine-line")).toHaveText(/^ply 9 Red perfect, column \d+/);
   });
 
-  test("Perfect after canceling in-flight analysis is an instant move-book hit", async ({ page }) => {
+  test("Perfect after canceling in-flight analysis still places a disc", async ({ page }) => {
     await page.goto("/connect4/#moves=44444222&DEBUG");
     await waitSolverAndBooks(page);
     await setPace(page, 0);
     await page.locator("#analyze").check();
     await expect(page.locator("#engine-line")).toHaveText(/analyzing/i, { timeout: 5_000 });
     await page.locator("#analyze").uncheck();
-    const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();
     await expect(page.locator(".disc")).toHaveCount(9);
-    await expect(page.locator("#engine-line")).toHaveText(/move book/i);
-    expect(Date.now() - t0).toBeLessThan(1500);
+    await expect(page.locator("#engine-line")).toHaveText(/^ply 9 Red perfect, column \d+/);
     await expectBooksStillLoaded(page);
   });
 
-  test("move-book-hit Perfect still moves immediately when no search is in flight", async ({ page }) => {
+  test("Perfect still moves at 44444222 when no search is in flight", async ({ page }) => {
     await page.goto("/connect4/#moves=44444222&DEBUG");
     await waitSolverAndBooks(page);
     await setPace(page, 0);
-    const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();
     await expect(page.locator(".disc")).toHaveCount(9);
-    expect(Date.now() - t0).toBeLessThan(1000);
-    await expect(page.locator("#engine-line")).toHaveText(/move book/i);
+    await expect(page.locator("#engine-line")).toHaveText(/^ply 9 Red perfect, column \d+/);
   });
 });

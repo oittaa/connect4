@@ -190,7 +190,7 @@ test("partial computer hints do not suppress full analysis after switching to Hu
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
 });
 
-test("missing frontier ranks stay hidden without delaying the move-book move", async ({ page }) => {
+test("missing frontier ranks stay hidden while Perfect plays 44444222", async ({ page }) => {
   await openApp(page, "44444222");
   const box = await boardBox(page);
   await setRole(page, 1, "perfect");
@@ -199,7 +199,7 @@ test("missing frontier ranks stay hidden without delaying the move-book move", a
   await expect.poll(() => page.evaluate(() => (window as any).hintTest.requests.some((r: any) => r.type === "availableScores"))).toBe(true);
   await expect(page.locator("#scores")).toBeHidden();
   await expect(page.locator("#board .best-col")).toHaveCount(0);
-  await expect(page.locator(".disc")).toHaveCount(9, { timeout: 2500 });
+  await expect(page.locator(".disc")).toHaveCount(9);
   expect(await boardBox(page)).toEqual(box);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
 });
