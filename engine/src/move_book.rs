@@ -482,7 +482,7 @@ mod tests {
         let move_book = MoveBook::load(bytes).unwrap();
         assert_eq!(move_book.moves_covered(), 12);
         assert_eq!(move_book.populated(), 3_373_595);
-        for seq in ["4444422234", "44444222345"] {
+        for seq in ["44444156", "4444422234", "44444222345"] {
             let pos = position(seq);
             for board in [pos, pos.mirrored()] {
                 let col = move_book.get(&board).expect("covered move");

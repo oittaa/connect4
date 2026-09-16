@@ -8,6 +8,7 @@ import {
   type ComputerPolicy,
   type SolverMove,
 } from "./computers/index.ts";
+import { NO_COLUMN } from "./engineProtocol.ts";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -66,7 +67,7 @@ assert(
   "solver test policy uses the reply column",
 );
 assert(
-  play(fromReply, [], () => 0, { col: 255, moveScores: null }) === 0,
+  play(fromReply, [], () => 0, { col: NO_COLUMN, moveScores: null }) === 0,
   "invalid solver column uses the shared fallback",
 );
 assert(play(fromReply, [], () => 0) === null, "solver policy without a reply does not invent a move");

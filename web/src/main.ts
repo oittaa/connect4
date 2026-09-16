@@ -13,7 +13,7 @@ import {
   WIDTH,
   analysisReplyApplies,
   analysisScoreClass,
-  formatScore,
+  formatHintScore,
   isDraw,
   isActiveComputerTurn,
   lastMoveWin,
@@ -38,10 +38,14 @@ import { createWorkerReplace } from "./workerReplace";
 const history: number[] = [];
 let cursor = 0;
 let seats: [Seat, Seat] = [{ kind: "human" }, { kind: "human" }];
-let analysis: { scores: number[]; timedOut: boolean } | null = null;
+/** One hint view for both human analysis and computer turns. `bookCol` is an
+ * uncertified move-book suggestion (`?`); `provenCol` is a certified optimum. */
+type HintView = { scores: number[]; timedOut: boolean; bookCol?: number; provenCol?: number };
+
+let analysis: HintView | null = null;
 let analyzing = false;
 let analysisGeneration = 0;
-let computerHints: { scores: number[]; timedOut: boolean; provenCol?: number } | null = null;
+let computerHints: HintView | null = null;
 let computerHintGeneration = 0;
 let thinking = false;
 let engineReady = false;
@@ -241,9 +245,10 @@ function renderBoard(animateLast: boolean): void {
   const showHints = shouldShowHintDisplay(analyzeChk.checked, over);
   const computerTurn = isActiveComputerTurn(hintContext());
   const hints = computerTurn ? computerHints : analysis;
-  const provenCol = computerTurn ? computerHints?.provenCol : undefined;
+  const provenCol = hints?.provenCol;
+  const bookCol = computerTurn ? undefined : hints?.bookCol;
   const best = showHints
-    ? provenBestColumns(hints?.scores ?? null, g.height, hints?.timedOut ?? false, provenCol)
+    ? provenBestColumns(hints?.scores ?? null, g.height, hints?.timedOut ?? false, provenCol, bookCol)
     : [];
 
   if (over) engineLine.textContent = "Game over.";
@@ -287,24 +292,18 @@ function renderBoard(animateLast: boolean): void {
     });
   });
 
-  if (showHints && analyzing) {
+  if (showHints && (analyzing || hints)) {
     scoresEl.hidden = false;
     scoresEl.replaceChildren();
     for (let i = 0; i < WIDTH; i++) {
       const span = document.createElement("span");
-      span.textContent = "…";
-      scoresEl.appendChild(span);
-    }
-  } else if (showHints && hints) {
-    scoresEl.hidden = false;
-    scoresEl.replaceChildren();
-    hints.scores.forEach((s, i) => {
-      const span = document.createElement("span");
-      span.textContent = formatScore(s);
-      const tone = analysisScoreClass(s, best.includes(i));
+      const score = hints?.scores[i] ?? INVALID;
+      const isBest = best.includes(i);
+      span.textContent = hints ? formatHintScore(score, analyzing, isBest) : "…";
+      const tone = analysisScoreClass(score, isBest);
       if (tone) span.classList.add(tone);
       scoresEl.appendChild(span);
-    });
+    }
   } else {
     scoresEl.hidden = true;
     scoresEl.replaceChildren();
@@ -315,6 +314,7 @@ function renderBoard(animateLast: boolean): void {
     showHints && !analyzing ? hints?.scores ?? null : null,
     thinking,
     hints?.timedOut ?? false,
+    showHints && !analyzing ? provenCol : undefined,
   );
   if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
   statusEl.classList.toggle("thinking", !over && !paused && (thinking || analyzing));
@@ -462,6 +462,15 @@ async function requestAvailableScores(): Promise<void> {
   renderBoard(false);
 }
 
+/** Store a search-free preview: known scores plus the uncertified book column. */
+function applyAnalysisPreview(scores: number[], moveBookCol: number): void {
+  analysis = {
+    scores,
+    timedOut: false,
+    bookCol: moveBookCol >= 0 && moveBookCol < WIDTH ? moveBookCol : undefined,
+  };
+}
+
 async function requestAnalyze(): Promise<void> {
   if (!shouldRequestAnalysis(hintContext())) {
     analyzing = false;
@@ -469,14 +478,33 @@ async function requestAnalyze(): Promise<void> {
     return;
   }
   const token = ++analysisGeneration;
+  const moves = played();
   analyzing = true;
   engineLine.textContent = "analyzing…";
   renderBoard(false);
-  const r = await send({ type: "analyze", moves: played() });
+  // Peek known scores and the move-book suggestion before the blocking search
+  // so the strip highlights `?` immediately. Skip the peek when a search is
+  // already occupying the worker; a new analyze will replace it instead.
+  if (!workerSession.client().hasPendingCompute()) {
+    const preview = await send({ type: "availableScores", moves });
+    if (!analysisReplyApplies(token, analysisGeneration, hintContext())) return;
+    if (preview.type === "availableScores") {
+      applyAnalysisPreview(preview.scores, preview.moveBookCol);
+      renderBoard(false);
+    }
+  }
+  if (!analysisReplyApplies(token, analysisGeneration, hintContext())) return;
+  const r = await send({ type: "analyze", moves });
   if (!analysisReplyApplies(token, analysisGeneration, hintContext()) || isWorkerReplaced(r)) return;
   analyzing = false;
   if (r.type === "analyzed") {
-    analysis = { scores: r.scores, timedOut: r.timedOut };
+    analysis = {
+      scores: r.scores,
+      timedOut: r.timedOut,
+      // A timeout proves nothing, but the suggestion behind `?` is still valid.
+      bookCol: r.timedOut ? analysis?.bookCol : undefined,
+      provenCol: r.provenCol,
+    };
     reportEngine(r.nodes, r.micros, r.timedOut);
   } else {
     engineLine.textContent = r.type === "error" ? r.message : "Analysis unavailable.";
