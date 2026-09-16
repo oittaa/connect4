@@ -1,6 +1,6 @@
 FROM node:26-slim AS node
 
-FROM rust:1.98.1-slim
+FROM rust:1.98.1-slim AS toolchain
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends make \
@@ -20,3 +20,11 @@ RUN rustup show \
 
 ENV RUSTUP_AUTO_INSTALL=0
 WORKDIR /repo
+
+FROM toolchain AS build
+COPY . /repo
+RUN make web
+
+FROM node AS dist
+COPY --from=build /repo/web/dist /dist
+CMD ["sh", "-c", "mkdir -p /out && find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} + && cp -a /dist/. /out/"]
