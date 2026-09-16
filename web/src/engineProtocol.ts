@@ -36,6 +36,8 @@ export type WorkerRes =
       nodes: number;
       micros: number;
       timedOut: boolean;
+      /** Set when analysis proved an optimal column without scoring every alternative. */
+      provenCol?: number;
     }
   | {
       id: number;

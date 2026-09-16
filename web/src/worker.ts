@@ -99,6 +99,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "analyze": {
         const moves = u8(msg.moves);
         const raw = Array.from(engine.analyze(moves));
+        const proven = engine.lastProvenCol();
         reply({
           id: msg.id,
           type: "analyzed",
@@ -106,6 +107,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           nodes: engine.nodeCount(),
           micros: engine.micros(),
           timedOut: engine.timedOut(),
+          ...(proven === 255 ? {} : { provenCol: proven }),
         });
         break;
       }

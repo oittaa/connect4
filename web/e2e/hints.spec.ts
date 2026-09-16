@@ -190,15 +190,23 @@ test("partial computer hints do not suppress full analysis after switching to Hu
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
 });
 
-test("missing frontier ranks stay hidden without delaying the move-book move", async ({ page }) => {
+test("move-book column is scored instantly past the score-book frontier", async ({ page }) => {
+  await openApp(page, "44444666");
+  await page.locator("#analyze").check();
+  await expect(page.locator("#scores span")).toHaveText(["", "", "", "", "", "W1", ""]);
+  await expect(page.locator('#board [data-col="5"]')).toHaveClass(/best-col/);
+  await expect(page.locator("#status")).toContainText("win");
+  await expect(page.locator("#engine-line")).not.toContainText(/Timed out/i);
+});
+
+test("a move-book computer turn shows the score-book rank without delaying the move", async ({ page }) => {
   await openApp(page, "44444222");
   const box = await boardBox(page);
   await setRole(page, 1, "perfect");
   await setRole(page, 0, "perfect");
   await page.locator("#analyze").check();
-  await expect.poll(() => page.evaluate(() => (window as any).hintTest.requests.some((r: any) => r.type === "availableScores"))).toBe(true);
-  await expect(page.locator("#scores")).toBeHidden();
-  await expect(page.locator("#board .best-col")).toHaveCount(0);
+  await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
+  await expect(page.locator('#board [data-col="1"]')).toHaveClass(/best-col/);
   await expect(page.locator(".disc")).toHaveCount(9, { timeout: 2500 });
   expect(await boardBox(page)).toEqual(box);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);

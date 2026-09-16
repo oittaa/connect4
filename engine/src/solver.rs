@@ -9,6 +9,9 @@ use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
 use std::time::{Duration, Instant};
 
 const COLUMN_ORDER: [usize; WIDTH] = [3, 4, 2, 5, 1, 6, 0];
+/// Larger than any `Position::move_score` (winning-spot count), so a move-book
+/// column is searched before heuristic ties.
+const MOVE_BOOK_ORDER_BONUS: i32 = 1_000;
 pub const INVALID_MOVE: i32 = -1000;
 
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +39,9 @@ pub struct Solver {
     /// `INVALID_MOVE` for columns that search did not need to visit. Not
     /// persisted or reused across positions; read it right after that call.
     last_move_scores: [i32; WIDTH],
+    /// Optimal column proved by the most recent `analyze`/`best_move`/
+    /// `select_move` call, if any. Cleared on timeout.
+    last_proven_col: Option<usize>,
     #[cfg(not(target_arch = "wasm32"))]
     start: Option<Instant>,
     #[cfg(target_arch = "wasm32")]
@@ -68,6 +74,7 @@ impl Solver {
             tt_log: log_size,
             move_book_hit: false,
             last_move_scores: [INVALID_MOVE; WIDTH],
+            last_proven_col: None,
             #[cfg(not(target_arch = "wasm32"))]
             start: None,
             #[cfg(target_arch = "wasm32")]
@@ -81,6 +88,7 @@ impl Solver {
         self.check_counter = 0;
         self.move_book_hit = false;
         self.last_move_scores = [INVALID_MOVE; WIDTH];
+        self.last_proven_col = None;
     }
 
     pub fn node_count(&self) -> u64 {
@@ -96,11 +104,72 @@ impl Solver {
     }
 
     /// Column scores discovered by the most recent `best_move`/`select_move`
-    /// call. Exact where `best_move` needed to prove them, `INVALID_MOVE`
-    /// elsewhere; a move-book hit leaves this all-`INVALID_MOVE` since it
-    /// does not search. Valid only until the next call that resets stats.
+    /// call. Exact where a proof or a score-book + move-book hit filled them,
+    /// `INVALID_MOVE` elsewhere. A move-book hit without a parent score still
+    /// leaves this all-`INVALID_MOVE`. Valid only until the next stats reset.
     pub fn last_move_scores(&self) -> [i32; WIDTH] {
         self.last_move_scores
+    }
+
+    /// Column proved optimal by the most recent `analyze`/`best_move`/
+    /// `select_move` call. `None` if the call timed out or did not finish a proof.
+    pub fn last_proven_col(&self) -> Option<usize> {
+        self.last_proven_col
+    }
+
+    fn book_move(&self, pos: &Position) -> Option<usize> {
+        self.move_book
+            .as_ref()
+            .and_then(|move_book| move_book.get(pos))
+    }
+
+    /// Move-book column together with a known exact score: an immediate win, or
+    /// the score-book value of this position (the book move is certified optimal).
+    fn book_column_score(&self, pos: &Position) -> Option<(usize, i32)> {
+        let col = self.book_move(pos)?;
+        let score = if pos.is_winning_move(col) {
+            (AREA as i32 + 1 - pos.moves() as i32) / 2
+        } else {
+            self.score_book_score(pos)?
+        };
+        Some((col, score))
+    }
+
+    /// Center-first order, with a remaining move-book column rotated to the front.
+    fn root_column_order(&self, pos: &Position) -> [usize; WIDTH] {
+        let mut order = COLUMN_ORDER;
+        if let Some(hint) = self.book_move(pos) {
+            if let Some(i) = order.iter().position(|&c| c == hint) {
+                if i > 0 {
+                    order[..=i].rotate_right(1);
+                }
+            }
+        }
+        order
+    }
+
+    fn finish_move(
+        &mut self,
+        col: usize,
+        score: i32,
+        scores: [i32; WIDTH],
+        from_score_book: bool,
+    ) -> Option<(usize, SolveResult, [i32; WIDTH])> {
+        self.last_move_scores = scores;
+        if !self.timed_out {
+            self.last_proven_col = Some(col);
+        }
+        Some((
+            col,
+            SolveResult {
+                score,
+                nodes: self.nodes,
+                micros: self.elapsed_micros(),
+                timed_out: self.timed_out,
+                from_score_book,
+            },
+            scores,
+        ))
     }
 
     pub fn set_timeout_ms(&mut self, ms: u32) {
@@ -320,32 +389,53 @@ impl Solver {
     pub fn analyze(&mut self, pos: Position) -> [i32; WIDTH] {
         self.reset_nodes();
         self.begin_clock();
-        // Score columns directly (centre first). Solving the parent first is a
-        // TT warmup, but on an empty board it burns the time budget and we
-        // return a single unfinished edge column as if it were best.
+        // Score columns in move-book-then-centre order. Solving the parent
+        // first is a TT warmup, but on an empty board it burns the time budget
+        // and we return a single unfinished edge column as if it were best.
         self.score_columns(pos)
     }
 
     fn score_columns(&mut self, pos: Position) -> [i32; WIDTH] {
-        let mut scores = [INVALID_MOVE; WIDTH];
-        for &col in &COLUMN_ORDER {
+        // Immediate wins/losses and score-book children are free; keep them even
+        // if a later short-circuit skips searched columns.
+        let mut scores = self.known_column_scores(&pos);
+        let max_possible = (AREA as i32 + 1 - pos.moves() as i32) / 2;
+        let parent_score = self.score_book_score(&pos);
+        let book_col = self.book_move(&pos);
+        if let Some((col, score)) = self.book_column_score(&pos) {
+            scores[col] = score;
+        }
+
+        for &col in &self.root_column_order(&pos) {
             if !pos.can_play(col) {
                 continue;
             }
-            if pos.is_winning_move(col) {
-                scores[col] = (AREA as i32 + 1 - pos.moves() as i32) / 2;
-                continue;
+            if scores[col] == INVALID_MOVE {
+                if pos.is_winning_move(col) {
+                    scores[col] = max_possible;
+                } else {
+                    let mut child = pos;
+                    child.play_col(col);
+                    // Aborted search returns a bound, not an exact child score.
+                    // Leave this column and later ones invalid instead of
+                    // displaying that bound as a proven win, loss, or draw.
+                    let (s, _) = self.score_position(child);
+                    if self.timed_out {
+                        break;
+                    }
+                    scores[col] = -s;
+                }
             }
-            let mut child = pos;
-            child.play_col(col);
-            // Aborted search returns a bound, not an exact child score. Leave
-            // this column and later ones invalid instead of displaying that
-            // bound as a proven win, loss, or draw.
-            let (s, _) = self.score_position(child);
-            if self.timed_out {
+            // A move as good as the known best (score-book parent, theoretical
+            // max, or the certified move-book column) lets us skip remaining
+            // searches.
+            if scores[col] == max_possible
+                || parent_score == Some(scores[col])
+                || book_col == Some(col)
+            {
+                self.last_proven_col = Some(col);
                 break;
             }
-            scores[col] = -s;
         }
         scores
     }
@@ -359,10 +449,37 @@ impl Solver {
         }
         self.reset_nodes();
         self.begin_clock();
+
+        if let Some((col, score)) = self.book_column_score(&pos) {
+            let mut scores = [INVALID_MOVE; WIDTH];
+            scores[col] = score;
+            return self.finish_move(col, score, scores, self.score_book_score(&pos).is_some());
+        }
+
+        // Out of the score book but still in the move book: search only the
+        // certified column. Its exact score is the position value.
+        if let Some(col) = self.book_move(&pos) {
+            let mut scores = [INVALID_MOVE; WIDTH];
+            if pos.is_winning_move(col) {
+                let score = (AREA as i32 + 1 - pos.moves() as i32) / 2;
+                scores[col] = score;
+                return self.finish_move(col, score, scores, false);
+            }
+            let mut child = pos;
+            child.play_col(col);
+            let (s, from_score_book) = self.score_position(child);
+            if self.timed_out {
+                return self.finish_move(col, 0, scores, from_score_book);
+            }
+            let score = -s;
+            scores[col] = score;
+            return self.finish_move(col, score, scores, from_score_book);
+        }
+
         let (target, from_score_book) = self.score_position(pos);
         let mut scores = [INVALID_MOVE; WIDTH];
         let mut best_col = None;
-        for &col in &COLUMN_ORDER {
+        for &col in &self.root_column_order(&pos) {
             if !pos.can_play(col) {
                 continue;
             }
@@ -406,32 +523,27 @@ impl Solver {
             }
         }
         let col = best_col?;
-        self.last_move_scores = scores;
-        let result = SolveResult {
-            score: target,
-            nodes: self.nodes,
-            micros: self.elapsed_micros(),
-            timed_out: self.timed_out,
-            from_score_book,
-        };
-        Some((col, result, scores))
+        self.finish_move(col, target, scores, from_score_book)
     }
 
-    /// Select a move for gameplay. A move-book hit performs no score search,
-    /// does not add an entry to the transposition table, and leaves
-    /// `last_move_scores` unset. Otherwise behaves like `best_move`.
+    /// Select a move for gameplay. A move-book hit performs no score search
+    /// and does not add an entry to the transposition table. If the position
+    /// is also in the score book, `last_move_scores` records that column's
+    /// value; otherwise it stays unset. Misses behave like `best_move`.
     pub fn select_move(&mut self, pos: Position) -> Option<usize> {
         self.reset_nodes();
         self.begin_clock();
         if pos.last_player_won() || pos.is_draw() {
             return None;
         }
-        if let Some(col) = self
-            .move_book
-            .as_ref()
-            .and_then(|move_book| move_book.get(&pos))
-        {
+        if let Some(col) = self.book_move(&pos) {
             self.move_book_hit = true;
+            if let Some((_, score)) = self.book_column_score(&pos) {
+                let mut scores = [INVALID_MOVE; WIDTH];
+                scores[col] = score;
+                self.last_move_scores = scores;
+                self.last_proven_col = Some(col);
+            }
             return Some(col);
         }
         self.best_move(pos).map(|(col, _, _)| col)
@@ -493,12 +605,17 @@ impl Solver {
             }
         }
 
+        let hinted = self.book_move(&pos);
         let mut moves = MoveList::new();
         for i in (0..WIDTH).rev() {
             let col = COLUMN_ORDER[i];
             let mv = possible & column_mask(col);
             if mv != 0 {
-                moves.add(mv, pos.move_score(mv));
+                let mut score = pos.move_score(mv);
+                if hinted == Some(col) {
+                    score += MOVE_BOOK_ORDER_BONUS;
+                }
+                moves.add(mv, score);
             }
         }
 
@@ -1105,6 +1222,87 @@ mod tests {
         assert_eq!(solver.select_move(pos), Some(2));
         solver.clear_move_book();
         assert!(solver.move_book().is_none());
+    }
+
+    fn position(seq: &str) -> Position {
+        let mut pos = Position::new();
+        assert_eq!(pos.play_seq(seq), seq.len());
+        pos
+    }
+
+    fn move_book_with(pos: Position, col: usize) -> MoveBook {
+        let mut move_book = MoveBook::empty(pos.moves()).unwrap();
+        move_book.insert(&pos, col).unwrap();
+        move_book
+    }
+
+    #[test]
+    fn root_column_order_puts_the_move_book_column_first() {
+        let pos = position("44444666");
+        let mut solver = Solver::with_tt_log(16);
+        assert_eq!(solver.root_column_order(&pos), COLUMN_ORDER);
+
+        solver.set_move_book(move_book_with(pos, 5));
+        assert_eq!(solver.root_column_order(&pos), [5, 3, 4, 2, 1, 6, 0]);
+    }
+
+    #[test]
+    fn analyze_empty_board_stays_complete_with_a_move_book() {
+        let mut solver = Solver::with_tt_log(16);
+        solver.set_move_book(move_book_with(Position::new(), 3));
+        let scores = solver.analyze(Position::new());
+        assert_eq!(scores, [-2, -1, 0, 1, 0, -1, -2]);
+        assert_eq!(solver.node_count(), 0);
+        assert!(!solver.timed_out());
+        assert_eq!(solver.last_proven_col(), Some(3));
+    }
+
+    #[test]
+    fn analyze_uses_move_book_and_score_book_for_the_frontier_win() {
+        let pos = position("44444666");
+        let mut solver = Solver::with_tt_log(16);
+        solver
+            .load_score_book(include_bytes!("../../books/8ply.c4book"))
+            .unwrap();
+        solver.set_move_book(move_book_with(pos, 5));
+        solver.max_nodes = 1;
+        let scores = solver.analyze(pos);
+        assert!(!solver.timed_out());
+        assert_eq!(solver.node_count(), 0);
+        assert_eq!(scores[5], 1);
+        for col in 0..WIDTH {
+            if col != 5 {
+                assert_eq!(scores[col], INVALID_MOVE, "column {col}");
+            }
+        }
+        assert_eq!(solver.last_proven_col(), Some(5));
+    }
+
+    #[test]
+    fn best_move_and_select_move_surface_the_score_book_value_of_the_move_book_column() {
+        let pos = position("44444666");
+        let mut solver = Solver::with_tt_log(16);
+        solver
+            .load_score_book(include_bytes!("../../books/8ply.c4book"))
+            .unwrap();
+        solver.set_move_book(move_book_with(pos, 5));
+        solver.max_nodes = 1;
+
+        let (col, result, scores) = solver.best_move(pos).unwrap();
+        assert_eq!(col, 5);
+        assert_eq!(result.score, 1);
+        assert_eq!(result.nodes, 0);
+        assert!(!result.timed_out);
+        assert!(result.from_score_book);
+        assert_eq!(scores[5], 1);
+        assert_eq!(solver.last_proven_col(), Some(5));
+
+        assert_eq!(solver.select_move(pos), Some(5));
+        assert!(solver.move_book_hit());
+        assert_eq!(solver.node_count(), 0);
+        assert!(!solver.timed_out());
+        assert_eq!(solver.last_move_scores()[5], 1);
+        assert_eq!(solver.last_proven_col(), Some(5));
     }
 
     #[test]

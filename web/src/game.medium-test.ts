@@ -148,12 +148,15 @@ same(provenBestColumns(timeoutPartial, emptyHeights, false, 3), [2, 3], "a prove
 same(provenBestColumns(timeoutPartial, emptyHeights, true, 3), [], "an aborted best-move search cannot certify an optimum");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 0), [], "unknown scores cannot become best through a fallback column");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 255), [], "invalid engine column cannot certify an optimum");
+const bookFrontier = [INVALID, INVALID, INVALID, INVALID, INVALID, 1, INVALID];
+same(provenBestColumns(bookFrontier, emptyHeights, false, 5), [5], "short-circuited analysis highlights the proven move-book column");
 same(provenBestColumns(emptyScores, emptyHeights, false), [3], "completed analysis highlights the best");
 same(provenBestColumns(emptyScores, emptyHeights, true), [], "timedOut book-looking array has no best highlight");
 same(provenBestColumns(null, emptyHeights, false), [], "missing analysis has no best highlight");
 assert(statusText([], timeoutLookalike, false, true) === "Red to move", "timedOut complete array is not a proven win");
 assert(statusText([], timeoutPartial, false, false) === "Red to move", "partial array is not a proven status");
 assert(statusText([], emptyScores, false, false) === "Red to move · win", "completed analysis reports a proven win");
+assert(statusText([], bookFrontier, false, false, 5) === "Red to move · win", "short-circuited analysis reports a proven win");
 assert(statusText([], emptyScores, false, true) === "Red to move", "timedOut completed-looking scores stay unproven");
 assert(statusText([], [-1, -1, -1, -1, -1, -1, -1], false, false) === "Red to move · loss", "proven loss");
 assert(statusText([], [0, 0, 0, 0, 0, 0, 0], false, false) === "Red to move · draw", "proven draw");

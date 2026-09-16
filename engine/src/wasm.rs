@@ -145,6 +145,15 @@ impl WasmEngine {
             .collect()
     }
 
+    /// 0-based column proved optimal by the last `analyze`/`bestMove`, or 255.
+    #[wasm_bindgen(js_name = lastProvenCol)]
+    pub fn last_proven_col(&self) -> u8 {
+        self.solver
+            .last_proven_col()
+            .map(|c| c as u8)
+            .unwrap_or(255)
+    }
+
     pub fn solve(&mut self, moves: &[u8]) -> i8 {
         let mut p = Position::new();
         if !p.play_moves(moves) {

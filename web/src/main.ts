@@ -38,7 +38,7 @@ import { createWorkerReplace } from "./workerReplace";
 const history: number[] = [];
 let cursor = 0;
 let seats: [Seat, Seat] = [{ kind: "human" }, { kind: "human" }];
-let analysis: { scores: number[]; timedOut: boolean } | null = null;
+let analysis: { scores: number[]; timedOut: boolean; provenCol?: number } | null = null;
 let analyzing = false;
 let analysisGeneration = 0;
 let computerHints: { scores: number[]; timedOut: boolean; provenCol?: number } | null = null;
@@ -241,7 +241,7 @@ function renderBoard(animateLast: boolean): void {
   const showHints = shouldShowHintDisplay(analyzeChk.checked, over);
   const computerTurn = isActiveComputerTurn(hintContext());
   const hints = computerTurn ? computerHints : analysis;
-  const provenCol = computerTurn ? computerHints?.provenCol : undefined;
+  const provenCol = computerTurn ? computerHints?.provenCol : analysis?.provenCol;
   const best = showHints
     ? provenBestColumns(hints?.scores ?? null, g.height, hints?.timedOut ?? false, provenCol)
     : [];
@@ -315,6 +315,7 @@ function renderBoard(animateLast: boolean): void {
     showHints && !analyzing ? hints?.scores ?? null : null,
     thinking,
     hints?.timedOut ?? false,
+    provenCol,
   );
   if (paused && !over) statusEl.textContent = `Paused · ${statusEl.textContent}`;
   statusEl.classList.toggle("thinking", !over && !paused && (thinking || analyzing));
@@ -476,7 +477,7 @@ async function requestAnalyze(): Promise<void> {
   if (!analysisReplyApplies(token, analysisGeneration, hintContext()) || isWorkerReplaced(r)) return;
   analyzing = false;
   if (r.type === "analyzed") {
-    analysis = { scores: r.scores, timedOut: r.timedOut };
+    analysis = { scores: r.scores, timedOut: r.timedOut, provenCol: r.provenCol };
     reportEngine(r.nodes, r.micros, r.timedOut);
   } else {
     engineLine.textContent = r.type === "error" ? r.message : "Analysis unavailable.";
