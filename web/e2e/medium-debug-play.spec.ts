@@ -34,7 +34,8 @@ test("Medium vs Medium from one disc plays, and DEBUG ply/column match the URL",
   await setPace(page, 0);
   await page.locator('input[name="role0"][value="medium"]').check();
   await page.locator('input[name="role1"][value="medium"]').check();
-  await expect(page.locator(".disc")).toHaveCount(8, { timeout: 60_000 });
+  await expect.poll(async () => page.locator(".disc").count(), { timeout: 60_000 }).toBeGreaterThan(1);
+  await expect(page.locator("#status")).toHaveText(/wins|draw/i, { timeout: 60_000 });
 
   await expect(page.locator("#engine-line")).not.toHaveText(/is not a function/);
   expect(errors.join("\n")).not.toMatch(/setScore is not a function/);
@@ -47,7 +48,7 @@ test("Medium vs Medium from one disc plays, and DEBUG ply/column match the URL",
     expect(m, line).not.toBeNull();
     return { ply: Number(m![1]), side: m![2], col: Number(m![3]), line };
   });
-  expect(plies.length).toBeGreaterThanOrEqual(7);
+  expect(plies.length).toBe(seq.length - 1);
   expect(new Set(plies.map((p) => p.ply)).size, logs.join("\n")).toBe(plies.length);
   for (const row of plies) {
     expect(seq[row.ply - 1], row.line).toBe(String(row.col));
