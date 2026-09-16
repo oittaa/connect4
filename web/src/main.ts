@@ -471,7 +471,6 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   renderBoard(false);
   if (col !== null && !gameOver()) {
     let extra = "";
-    let best: { col: number; extra: string } | undefined;
     if (isDebugMode()) {
       const wantBest = col !== r.col && r.col >= 0 && r.col < WIDTH;
       const x = await send({
@@ -483,12 +482,15 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
       if (computerTurnStale(turn.generation)) return;
       if (x.type === "debugExtra") {
         extra = x.extra;
-        if (wantBest) best = { col: r.col, extra: x.bestExtra ?? "" };
+        if (wantBest) {
+          extra = extra ? `${extra}, best column ${r.col + 1}` : `best column ${r.col + 1}`;
+          if (x.bestExtra) extra = `${extra}, ${x.bestExtra}`;
+        }
       }
     }
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {
-        const fact = moveFact(turn.moves, col, turn.engineName, extra, best);
+        const fact = moveFact(turn.moves, col, turn.engineName, extra);
         applyMove(col);
         debugMove(fact);
       }
