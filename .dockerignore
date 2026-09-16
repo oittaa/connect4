@@ -3,7 +3,6 @@
 .cursor
 target
 testdata
-/books
 web/node_modules
 web/dist
 web/src/pkg
