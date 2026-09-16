@@ -237,13 +237,15 @@ async function openHoldingAnalyze(page: Page, moves: string): Promise<void> {
   await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
   await expect(page.locator("#books-line")).toContainText(/move book [1-9]/, { timeout: 60_000 });
   await page.locator("#analyze").check();
-  // The search-free preview goes out before the blocking search.
-  const types = await page.evaluate(() =>
-    (window as any).hintTest.requests
-      .filter((r: any) => r.type === "availableScores" || r.type === "analyze")
-      .map((r: any) => r.type),
-  );
-  expect(types.slice(0, 2)).toEqual(["availableScores", "analyze"]);
+  // The search-free preview goes out before the blocking search. Poll: the
+  // analyze post waits on the preview round-trip, so a one-shot read races it.
+  await expect.poll(() =>
+    page.evaluate(() =>
+      (window as any).hintTest.requests
+        .filter((r: any) => r.type === "availableScores" || r.type === "analyze")
+        .map((r: any) => r.type),
+    ),
+  ).toEqual(["availableScores", "analyze"]);
 }
 
 async function releaseAnalyze(page: Page): Promise<void> {
