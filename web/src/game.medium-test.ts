@@ -146,7 +146,8 @@ const timeoutPartial = [INVALID, 0, 10, 10, -2, -2, -2];
 same(provenBestColumns(timeoutLookalike, emptyHeights, true), [], "timedOut complete array has no best highlight");
 same(provenBestColumns(timeoutPartial, emptyHeights, false), [], "partial array has no best highlight");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 3), [2, 3], "a proven best-move column certifies equal exact scores");
-same(provenBestColumns(timeoutPartial, emptyHeights, true, 3), [], "an aborted best-move search cannot certify an optimum");
+same(provenBestColumns(timeoutPartial, emptyHeights, true, 3), [2, 3], "a certified preview column survives the background timeout");
+same(provenBestColumns(timeoutPartial, emptyHeights, true, 0), [], "a timeout without an exact proof certifies nothing");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 0), [], "unknown scores cannot become best through a fallback column");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, NO_COLUMN), [], "invalid engine column cannot certify an optimum");
 const bookFrontier = [INVALID, INVALID, INVALID, INVALID, INVALID, 1, INVALID];
@@ -162,6 +163,7 @@ assert(statusText([], timeoutPartial, false, false) === "Red to move", "partial 
 assert(statusText([], emptyScores, false, false) === "Red to move · win", "completed analysis reports a proven win");
 assert(statusText([], bookFrontier, false, false, 5) === "Red to move · win", "a certified book column reports a proven win");
 assert(statusText([], emptyScores, false, true) === "Red to move", "timedOut completed-looking scores stay unproven");
+assert(statusText([], timeoutPartial, false, true, 3) === "Red to move · win", "a certified preview outcome survives the background timeout");
 assert(statusText([], [-1, -1, -1, -1, -1, -1, -1], false, false) === "Red to move · loss", "proven loss");
 assert(statusText([], [0, 0, 0, 0, 0, 0, 0], false, false) === "Red to move · draw", "proven draw");
 assert(formatScore(INVALID) === "", "unfinished columns stay blank");

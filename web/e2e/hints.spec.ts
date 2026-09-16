@@ -204,6 +204,22 @@ test("a move-book computer turn shows the certified rank without delaying the mo
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
 });
 
+test("enabling hints during a computer move keeps its proven highlight", async ({ page }) => {
+  await openApp(page, "35273425116235");
+  await setRole(page, 0, "perfect");
+  // Wait for Perfect's calculated move, then enable hints inside its delay.
+  await expect
+    .poll(
+      () => page.evaluate(() => (window as any).hintTest.replies.some((r: any) => r.type === "moved" && !r.timedOut)),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  await page.locator("#analyze").check();
+  // The late score peek must not erase the proof the search just proved.
+  await expect(page.locator("#scores span").nth(2)).toHaveText("W14");
+  await expect(page.locator('#board [data-col="2"]')).toHaveClass(/best-col/);
+});
+
 async function openHoldingAnalyze(page: Page, moves: string): Promise<void> {
   await page.addInitScript(() => {
     const state = { requests: [] as { type: string }[], held: [] as (() => void)[], release: false };

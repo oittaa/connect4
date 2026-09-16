@@ -441,7 +441,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   const col = resolveSolverColumn(turn.plan.choose, { col: r.col, moveScores: r.moveScores }, turn.moves);
   computerHintGeneration++;
   computerHints = r.hintScores.some((s) => s !== INVALID)
-    ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : r.col }
+    ? { scores: r.hintScores, timedOut: r.timedOut, provenCol: r.timedOut ? undefined : toLegalCol(r.col) }
     : null;
   if (col === null || gameOver()) thinking = false;
   renderBoard(false);
@@ -463,17 +463,23 @@ async function requestAvailableScores(): Promise<void> {
     computerHints = {
       scores: r.scores,
       timedOut: computerHints?.timedOut ?? false,
-      provenCol: r.provenCol >= 0 && r.provenCol < WIDTH ? r.provenCol : undefined,
+      // A proof-less peek must not erase the proof a bestMove reply proved
+      // for this same position (the token guard rules out anything older).
+      provenCol: toLegalCol(r.provenCol) ?? computerHints?.provenCol,
     };
   }
   renderBoard(false);
 }
 
+/** Engine column bounds: anything outside 0-6 (including NO_COLUMN) is none. */
+function toLegalCol(c: number | undefined): number | undefined {
+  return c !== undefined && c >= 0 && c < WIDTH ? c : undefined;
+}
+
 /** Store a search-free preview: known scores, the book suggestion, and its
  * proof if the suggestion is already exact. */
 function applyAnalysisPreview(scores: number[], moveBookCol: number, provenCol: number): void {
-  const col = (c: number) => (c >= 0 && c < WIDTH ? c : undefined);
-  analysis = { scores, timedOut: false, bookCol: col(moveBookCol), provenCol: col(provenCol) };
+  analysis = { scores, timedOut: false, bookCol: toLegalCol(moveBookCol), provenCol: toLegalCol(provenCol) };
 }
 
 async function requestAnalyze(): Promise<void> {
