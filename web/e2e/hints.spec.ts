@@ -190,18 +190,96 @@ test("partial computer hints do not suppress full analysis after switching to Hu
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze").length)).toBe(1);
 });
 
-test("missing frontier ranks stay hidden without delaying the move-book move", async ({ page }) => {
+test("move-book column is scored instantly past the score-book frontier", async ({ page }) => {
+  await openApp(page, "44444666");
+  await page.locator("#analyze").check();
+  await expect(page.locator("#scores span")).toHaveText(["", "", "", "", "", "W1", ""]);
+  await expect(page.locator('#board [data-col="5"]')).toHaveClass(/best-col/);
+  await expect(page.locator("#status")).toContainText("win");
+  await expect(page.locator("#engine-line")).not.toContainText(/Timed out/i);
+});
+
+test("a move-book computer turn shows the certified rank without delaying the move", async ({ page }) => {
   await openApp(page, "44444222");
   const box = await boardBox(page);
   await setRole(page, 1, "perfect");
   await setRole(page, 0, "perfect");
   await page.locator("#analyze").check();
-  await expect.poll(() => page.evaluate(() => (window as any).hintTest.requests.some((r: any) => r.type === "availableScores"))).toBe(true);
-  await expect(page.locator("#scores")).toBeHidden();
-  await expect(page.locator("#board .best-col")).toHaveCount(0);
+  await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
+  await expect(page.locator('#board [data-col="1"]')).toHaveClass(/best-col/);
   await expect(page.locator(".disc")).toHaveCount(9, { timeout: 2500 });
   expect(await boardBox(page)).toEqual(box);
   expect(await page.evaluate(() => (window as any).hintTest.requests.filter((r: any) => r.type === "analyze"))).toEqual([]);
+});
+
+async function openHoldingAnalyze(page: Page, moves: string): Promise<void> {
+  await page.addInitScript(() => {
+    const state = { requests: [] as { type: string }[], held: [] as (() => void)[], release: false };
+    Object.assign(window, { hintTest: state });
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", (event) => {
+          if (event.data.type !== "analyzed" || state.release || state.held.length > 0) return;
+          event.stopImmediatePropagation();
+          state.held.push(() => this.dispatchEvent(new MessageEvent("message", { data: event.data })));
+        });
+      }
+      override postMessage(message: any): void {
+        state.requests.push(message);
+        super.postMessage(message);
+      }
+    };
+  });
+  await page.goto(`/connect4/#moves=${moves}&DEBUG`);
+  await expect(page.locator("#engine-line")).toHaveText(/Solver ready/i, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).not.toContainText(/Downloading/, { timeout: 60_000 });
+  await expect(page.locator("#books-line")).toContainText(/move book [1-9]/, { timeout: 60_000 });
+  await page.locator("#analyze").check();
+  // The search-free preview goes out before the blocking search.
+  const types = await page.evaluate(() =>
+    (window as any).hintTest.requests
+      .filter((r: any) => r.type === "availableScores" || r.type === "analyze")
+      .map((r: any) => r.type),
+  );
+  expect(types.slice(0, 2)).toEqual(["availableScores", "analyze"]);
+}
+
+async function releaseAnalyze(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => (window as any).hintTest.held.length), { timeout: 60_000 }).toBe(1);
+  await page.evaluate(() => {
+    const state = (window as any).hintTest;
+    state.release = true;
+    state.held.splice(0).forEach((release: () => void) => release());
+  });
+}
+
+test("move book highlights a best column with ? until analysis finishes", async ({ page }) => {
+  await openHoldingAnalyze(page, "44444156");
+  // Instant preview: one `?` suggestion while the search is still running.
+  await expect(page.locator("#scores .best")).toHaveText("?");
+  await expect(page.locator("#board .best-col")).toHaveCount(1);
+  await expect(page.locator("#engine-line")).toHaveText(/analyzing/i);
+  await releaseAnalyze(page);
+  // Certified proof replaces the preview: exact rank, no `?` left.
+  await expect(page.locator("#scores span", { hasText: "?" })).toHaveCount(0);
+  await expect(page.locator("#scores span")).toHaveText(["", "", "", "", "", "W1", ""]);
+  await expect(page.locator("#status")).toContainText("win");
+  await expect(page.locator("#engine-line")).not.toHaveText(/analyzing/i);
+});
+
+test("analysis scores every column past a bare move-book hit", async ({ page }) => {
+  await openHoldingAnalyze(page, "4444422234");
+  // Bare suggestion first: `?` on column 2, everything else pending.
+  await expect(page.locator("#scores span")).toHaveText(["…", "?", "…", "…", "…", "…", "…"]);
+  await expect(page.locator('#board [data-col="1"]')).toHaveClass(/best-col/);
+  await releaseAnalyze(page);
+  // No short-circuit: every legal column gets its exact score.
+  await expect(page.locator("#scores span")).toHaveText(["L3", "D", "L2", "", "L1", "D", "L2"]);
+  await expect(page.locator("#board .best-col")).toHaveCount(2);
+  await expect(page.locator("#status")).toContainText("draw");
+  await expect(page.locator("#engine-line")).not.toContainText(/Timed out/i);
 });
 
 test("a late score-book reply cannot restore hints after switching them off", async ({ page }) => {

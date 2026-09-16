@@ -192,6 +192,7 @@ assert(isBlockingCompute("analyze"), "analyze blocks the worker");
 assert(isBlockingCompute("bestMove"), "bestMove blocks the worker");
 assert(!isBlockingCompute("init"), "init is not a blocking search");
 assert(!isBlockingCompute("loadScoreBook"), "score-book load is not a blocking search");
+assert(!isBlockingCompute("availableScores"), "score peek is not a blocking search");
 
 {
   const port = stub();

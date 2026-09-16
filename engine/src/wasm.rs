@@ -83,11 +83,20 @@ impl WasmEngine {
         if !p.play_moves(moves) {
             return vec![INVALID_MOVE as i16; 7];
         }
-        self.solver
-            .known_column_scores(&p)
-            .iter()
-            .map(|&s| s as i16)
-            .collect()
+        let (scores, _) = self.solver.hint_preview(&p);
+        scores.iter().map(|&s| s as i16).collect()
+    }
+
+    /// Move-book suggestion for this position, or 255 if none. Read-only:
+    /// no search, stats unchanged. Shown as `?` until analysis scores it.
+    #[wasm_bindgen(js_name = moveBookColumn)]
+    pub fn move_book_column(&self, moves: &[u8]) -> u8 {
+        let mut p = Position::new();
+        if !p.play_moves(moves) {
+            return 255;
+        }
+        let (_, book) = self.solver.hint_preview(&p);
+        book.map(|c| c as u8).unwrap_or(255)
     }
 
     #[wasm_bindgen(js_name = moveBookMoves)]
@@ -143,6 +152,31 @@ impl WasmEngine {
             .iter()
             .map(|&s| s as i16)
             .collect()
+    }
+
+    /// Hint scores after the most recent `bestMove`: the search's own scores
+    /// overlaid on the search-free columns it did not visit. Does not search.
+    #[wasm_bindgen(js_name = hintScores)]
+    pub fn hint_scores(&self, moves: &[u8]) -> Vec<i16> {
+        let mut p = Position::new();
+        if !p.play_moves(moves) {
+            return vec![INVALID_MOVE as i16; 7];
+        }
+        self.solver
+            .search_hint_scores(&p)
+            .iter()
+            .map(|&s| s as i16)
+            .collect()
+    }
+
+    /// 0-based column proved optimal by the last `analyze`/`bestMove`, or 255.
+    /// A bare move-book suggestion never appears here; only a real proof does.
+    #[wasm_bindgen(js_name = lastProvenCol)]
+    pub fn last_proven_col(&self) -> u8 {
+        self.solver
+            .last_proven_col()
+            .map(|c| c as u8)
+            .unwrap_or(255)
     }
 
     pub fn solve(&mut self, moves: &[u8]) -> i8 {

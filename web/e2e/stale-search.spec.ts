@@ -31,10 +31,12 @@ async function expectBooksStillLoaded(page: Page): Promise<void> {
 }
 
 test.describe("stale search restart", () => {
-  test("New during in-flight 44444222 analysis returns a usable result without waiting out the search", async ({
+  test("New during slow bare-book analysis returns a usable result without waiting out the search", async ({
     page,
   }) => {
-    await page.goto("/connect4/#moves=44444222&DEBUG");
+    // 444442223 is past the score book: a real multi-second search, so New
+    // must replace the worker instead of waiting it out.
+    await page.goto("/connect4/#moves=444442223&DEBUG");
     await waitSolverAndBooks(page);
     await setPace(page, 0);
     await page.locator("#analyze").check();
@@ -49,43 +51,44 @@ test.describe("stale search restart", () => {
     await expectBooksStillLoaded(page);
   });
 
-  test("Back during in-flight 44444222 analysis returns a usable result quickly", async ({
+  test("Back during slow bare-book analysis lands on the certified parent instantly", async ({
     page,
   }) => {
-    await page.goto("/connect4/#moves=44444222&DEBUG");
+    await page.goto("/connect4/#moves=444442223&DEBUG");
     await waitSolverAndBooks(page);
     await setPace(page, 0);
     await page.locator("#analyze").check();
     await expect(page.locator("#engine-line")).toHaveText(/analyzing/i, { timeout: 5_000 });
     const t0 = Date.now();
     await page.locator("#back").click();
-    await expect(page.locator("#status")).toHaveText(/Yellow to move/i);
-    await expect(page.locator(".disc")).toHaveCount(7);
-    await expectCurrentAnalysis(page);
+    await expect(page.locator(".disc")).toHaveCount(8);
+    // The 8-ply parent is a certified move-book win: exact rank, no search.
+    await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
+    await expect(page.locator("#status")).toHaveText(/Red to move · win/i);
     expect(Date.now() - t0).toBeLessThan(2500);
     await expectBooksStillLoaded(page);
   });
 
-  test("Perfect during in-flight 44444222 analysis places a disc without waiting out the search", async ({
+  test("Perfect with a fresh certified analysis places a disc without a search", async ({
     page,
   }) => {
     await page.goto("/connect4/#moves=44444222&DEBUG");
     await waitSolverAndBooks(page);
     await setPace(page, 0);
     await page.locator("#analyze").check();
-    await expect(page.locator("#engine-line")).toHaveText(/analyzing/i, { timeout: 5_000 });
+    await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
     const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();
     await expect(page.locator(".disc")).toHaveCount(9);
     expect(Date.now() - t0).toBeLessThan(1500);
   });
 
-  test("Perfect after canceling in-flight analysis is an instant move-book hit", async ({ page }) => {
+  test("Perfect after canceling analysis is an instant move-book hit", async ({ page }) => {
     await page.goto("/connect4/#moves=44444222&DEBUG");
     await waitSolverAndBooks(page);
     await setPace(page, 0);
     await page.locator("#analyze").check();
-    await expect(page.locator("#engine-line")).toHaveText(/analyzing/i, { timeout: 5_000 });
+    await expect(page.locator("#scores span")).toHaveText(["", "W1", "", "", "", "", ""]);
     await page.locator("#analyze").uncheck();
     const t0 = Date.now();
     await page.locator('input[name="role0"][value="perfect"]').check();

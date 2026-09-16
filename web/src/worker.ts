@@ -3,7 +3,7 @@
 
 import { loadTT, saveTT } from "./cache";
 import type { WorkerReq, WorkerRes } from "./engineProtocol";
-import { completeMoveScores, INVALID } from "./game";
+import { completeMoveScores } from "./game";
 import type { WasmEngine } from "./pkg/engine.js";
 
 let engine: WasmEngine | null = null;
@@ -36,14 +36,6 @@ async function persistTT(eng: WasmEngine): Promise<void> {
   } catch (e) {
     console.error("TT save failed", e);
   }
-}
-
-/** Column scores from the just-completed bestMove search, filled in with
- * known/immediate-win columns it did not need to visit. Neither call searches. */
-function bestMoveHintScores(eng: WasmEngine, moves: Uint8Array): number[] {
-  const known = Array.from(eng.knownColumnScores(moves));
-  const last = eng.lastMoveScores();
-  return known.map((k, i) => (last[i] !== INVALID ? last[i] : k));
 }
 
 function ready(id: number, eng: WasmEngine): WorkerRes {
@@ -87,18 +79,21 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         reply(ready(msg.id, engine));
         break;
       case "availableScores": {
-        // Read-only hints for active computers, including JS-only Easy moves.
+        // Read-only hints for active computers, including JS-only Easy moves:
+        // search-free scores plus the uncertified move-book suggestion.
         const moves = u8(msg.moves);
         reply({
           id: msg.id,
           type: "availableScores",
           scores: Array.from(engine.knownColumnScores(moves)),
+          moveBookCol: engine.moveBookColumn(moves),
         });
         break;
       }
       case "analyze": {
         const moves = u8(msg.moves);
         const raw = Array.from(engine.analyze(moves));
+        const proven = engine.lastProvenCol();
         reply({
           id: msg.id,
           type: "analyzed",
@@ -106,6 +101,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           nodes: engine.nodeCount(),
           micros: engine.micros(),
           timedOut: engine.timedOut(),
+          ...(proven === 255 ? {} : { provenCol: proven }),
         });
         break;
       }
@@ -119,7 +115,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
           type: "moved",
           col,
           moveScores: completeMoveScores(engine.scoreBookColumnScores(moves), msg.moves),
-          hintScores: bestMoveHintScores(engine, moves),
+          hintScores: Array.from(engine.hintScores(moves)),
           nodes,
           micros,
           timedOut: engine.timedOut(),

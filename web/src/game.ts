@@ -221,34 +221,39 @@ function analysisComplete(scores: ArrayLike<number>, heights: number[]): boolean
   return true;
 }
 
-/** Proven only when analysis finished without timeout and every legal column is exact. */
-function analysisProven(
-  scores: ArrayLike<number>,
-  heights: number[],
-  timedOut: boolean,
-): boolean {
-  return !timedOut && analysisComplete(scores, heights);
-}
-
+/**
+ * Highlighted hint columns. A proof wins (complete exact scores, or a
+ * certified `provenCol` from a short-circuited search); otherwise the
+ * uncertified move-book suggestion shows while its score is still unknown.
+ */
 export function provenBestColumns(
   scores: number[] | null,
   heights: number[],
   timedOut: boolean,
   provenCol?: number,
+  bookCol?: number,
 ): number[] {
-  if (!scores || timedOut) return [];
+  if (!scores || timedOut) return legalBookCol(heights, bookCol);
   if (analysisComplete(scores, heights)) return bestCols(scores);
-  // A completed best-move search can prove an optimal column without scoring
-  // every alternative. A partial analysis alone cannot establish that proof.
+  // A completed best-move search, or analysis that short-circuited on a
+  // certified book/score-book proof, can certify an optimal column without
+  // scoring every alternative. A partial analysis alone cannot.
   if (provenCol !== undefined && heights[provenCol] < HEIGHT && scores[provenCol] !== INVALID) {
     return scores.map((s, c) => s === scores[provenCol] ? c : -1).filter((c) => c >= 0);
   }
-  return [];
+  return legalBookCol(heights, bookCol);
+}
+
+/** Uncertified suggestion, kept through a timeout so `?` survives it. */
+function legalBookCol(heights: number[], bookCol?: number): number[] {
+  if (bookCol === undefined || bookCol < 0 || bookCol >= WIDTH) return [];
+  if (heights[bookCol] >= HEIGHT) return [];
+  return [bookCol];
 }
 
 export function analysisScoreClass(score: number, isBest: boolean): string | null {
-  if (score === INVALID) return null;
   if (isBest) return "best";
+  if (score === INVALID) return null;
   if (score > 0) return "win";
   if (score < 0) return "loss";
   return "draw";
@@ -288,11 +293,20 @@ export function formatScore(s: number): string {
   return s > 0 ? `W${s}` : `L${-s}`;
 }
 
+/** Hint-strip label: exact W/D/L once known, `?` for the suggested column, `…` while analyzing. */
+export function formatHintScore(score: number, analyzing: boolean, isBest: boolean): string {
+  if (score !== INVALID) return formatScore(score);
+  if (isBest) return "?";
+  if (analyzing) return "…";
+  return "";
+}
+
 export function statusText(
   moves: number[],
   scores: number[] | null,
   thinking: boolean,
   timedOut = false,
+  provenCol?: number,
 ): string {
   const win = lastMoveWin(moves);
   if (win) {
@@ -302,14 +316,13 @@ export function statusText(
   if (isDraw(moves)) return "Draw";
   const side = toMove(moves) === 1 ? "Red" : "Yellow";
   if (thinking) return `${side} thinking…`;
-  if (scores && analysisProven(scores, playMoves(moves).height, timedOut)) {
-    const b = bestCols(scores);
-    if (b.length) {
-      const s = scores[b[0]];
-      if (s > 0) return `${side} to move · win`;
-      if (s < 0) return `${side} to move · loss`;
-      return `${side} to move · draw`;
-    }
+  // Only a proof reports win/loss/draw; a bare `?` suggestion never does.
+  const best = provenBestColumns(scores, playMoves(moves).height, timedOut, provenCol);
+  if (best.length && scores) {
+    const s = scores[best[0]];
+    if (s > 0) return `${side} to move · win`;
+    if (s < 0) return `${side} to move · loss`;
+    return `${side} to move · draw`;
   }
   return `${side} to move`;
 }

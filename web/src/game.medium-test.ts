@@ -7,6 +7,7 @@ import {
   analysisScoreClass,
   completeMoveScores,
   forcedWinOrBlock,
+  formatHintScore,
   formatScore,
   isDraw,
   lastMoveWin,
@@ -148,18 +149,29 @@ same(provenBestColumns(timeoutPartial, emptyHeights, false, 3), [2, 3], "a prove
 same(provenBestColumns(timeoutPartial, emptyHeights, true, 3), [], "an aborted best-move search cannot certify an optimum");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 0), [], "unknown scores cannot become best through a fallback column");
 same(provenBestColumns(timeoutPartial, emptyHeights, false, 255), [], "invalid engine column cannot certify an optimum");
+const bookFrontier = [INVALID, INVALID, INVALID, INVALID, INVALID, 1, INVALID];
+same(provenBestColumns(bookFrontier, emptyHeights, false, 5), [5], "a certified book column highlights without full scores");
+same(provenBestColumns(null, emptyHeights, false, undefined, 3), [3], "a bare book suggestion highlights before scores arrive");
+same(provenBestColumns(null, emptyHeights, false, undefined, 255), [], "an invalid book suggestion is ignored");
+same(provenBestColumns(timeoutPartial, emptyHeights, true, undefined, 3), [3], "a timeout keeps the book suggestion");
 same(provenBestColumns(emptyScores, emptyHeights, false), [3], "completed analysis highlights the best");
 same(provenBestColumns(emptyScores, emptyHeights, true), [], "timedOut book-looking array has no best highlight");
 same(provenBestColumns(null, emptyHeights, false), [], "missing analysis has no best highlight");
 assert(statusText([], timeoutLookalike, false, true) === "Red to move", "timedOut complete array is not a proven win");
 assert(statusText([], timeoutPartial, false, false) === "Red to move", "partial array is not a proven status");
 assert(statusText([], emptyScores, false, false) === "Red to move · win", "completed analysis reports a proven win");
+assert(statusText([], bookFrontier, false, false, 5) === "Red to move · win", "a certified book column reports a proven win");
 assert(statusText([], emptyScores, false, true) === "Red to move", "timedOut completed-looking scores stay unproven");
 assert(statusText([], [-1, -1, -1, -1, -1, -1, -1], false, false) === "Red to move · loss", "proven loss");
 assert(statusText([], [0, 0, 0, 0, 0, 0, 0], false, false) === "Red to move · draw", "proven draw");
 assert(formatScore(INVALID) === "", "unfinished columns stay blank");
+assert(formatHintScore(INVALID, true, true) === "?", "a suggested column is ? until scored");
+assert(formatHintScore(INVALID, false, true) === "?", "a timeout keeps the suggested column as ?");
+assert(formatHintScore(INVALID, true, false) === "…", "other columns stay ellipsis while analyzing");
+assert(formatHintScore(10, true, true) === "W10", "a known score wins over the question mark");
+assert(formatHintScore(INVALID, false, false) === "", "unknown stays blank when not analyzing");
 assert(analysisScoreClass(INVALID, false) === null, "unfinished columns are not scored as a loss");
-assert(analysisScoreClass(INVALID, true) === null, "unfinished columns are not best");
+assert(analysisScoreClass(INVALID, true) === "best", "a suggested column highlights before its score arrives");
 assert(analysisScoreClass(10, true) === "best", "proven best column");
 assert(analysisScoreClass(10, false) === "win", "partial exact win still displays");
 assert(analysisScoreClass(-2, false) === "loss", "partial exact loss still displays");
