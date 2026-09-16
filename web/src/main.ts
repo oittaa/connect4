@@ -471,8 +471,7 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (col !== null && !gameOver()) {
     cpuTimer = window.setTimeout(() => {
       if (!computerTurnStale(turn.generation) && !gameOver()) {
-        const extra = r.extras[col] ?? r.extra;
-        const fact = moveFact(turn.moves, col, turn.engineName, extra);
+        const fact = moveFact(turn.moves, col, turn.engineName, r.extra);
         applyMove(col);
         debugMove(fact);
       }
