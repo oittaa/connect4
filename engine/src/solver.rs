@@ -35,11 +35,11 @@ impl MoveOrigin {
 
 fn debug_score_text(score: i32) -> String {
     if score == 0 {
-        "D".to_string()
+        "draw".to_string()
     } else if score > 0 {
-        format!("W{score}")
+        format!("win in {score}")
     } else {
-        format!("L{}", -score)
+        format!("loss in {}", -score)
     }
 }
 
@@ -160,19 +160,12 @@ impl Solver {
         let mut extra = String::from(label);
         if self.origin != MoveOrigin::MoveBook {
             if let Some(score) = self.proven_debug_score(pos, col) {
-                extra.push(' ');
+                extra.push_str(", ");
                 extra.push_str(&debug_score_text(score));
             }
         }
-        if self.origin == MoveOrigin::Search {
-            let micros = self.last_micros();
-            if self.nodes > 0 && micros > 0 {
-                let nps = ((self.nodes as f64 / micros as f64) * 1_000_000.0).round() as u64;
-                extra.push_str(&format!(" · {nps} hashes/s"));
-            }
-            if self.timed_out {
-                extra.push_str(" timed out");
-            }
+        if self.origin == MoveOrigin::Search && self.timed_out {
+            extra.push_str(", timed out");
         }
         extra
     }
@@ -1192,12 +1185,12 @@ mod tests {
         assert_eq!(solver.move_origin(), MoveOrigin::ScoreBook);
         assert_eq!(solver.last_score(), 1);
         assert_eq!(solver.last_move_scores()[3], 1);
-        assert_eq!(solver.debug_extra(&pos, 3), "score book W1");
+        assert_eq!(solver.debug_extra(&pos, 3), "score book, win in 1");
 
         let mut yellow = Position::new();
         yellow.play_col(3);
         assert_eq!(solver.select_move(yellow), Some(3));
-        assert_eq!(solver.debug_extra(&yellow, 3), "score book L1");
+        assert_eq!(solver.debug_extra(&yellow, 3), "score book, loss in 1");
     }
 
     #[test]

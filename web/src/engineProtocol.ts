@@ -17,7 +17,7 @@ export type WorkerReq =
   | { id: number; type: "analyze"; moves: number[] }
   | { id: number; type: "availableScores"; moves: number[] }
   | { id: number; type: "bestMove"; moves: number[] }
-  | { id: number; type: "debugExtra"; moves: number[]; col: number; bestCol?: number }
+  | { id: number; type: "debugExtra"; moves: number[]; col: number }
   | { id: number; type: "saveTT" };
 
 export type WorkerRes =
@@ -52,6 +52,6 @@ export type WorkerRes =
       score: number | null;
       fromMoveBook: boolean;
     }
-  | { id: number; type: "debugExtra"; extra: string; bestExtra?: string }
+  | { id: number; type: "debugExtra"; extra: string }
   | { id: number; type: "ttSaved" }
   | { id: number; type: "error"; message: string };

@@ -472,20 +472,19 @@ async function executeComputerTurn(turn: PendingComputerTurn): Promise<void> {
   if (col !== null && !gameOver()) {
     let extra = "";
     if (isDebugMode()) {
-      const wantBest = col !== r.col && r.col >= 0 && r.col < WIDTH;
-      const x = await send({
-        type: "debugExtra",
-        moves: turn.moves,
-        col,
-        bestCol: wantBest ? r.col : undefined,
-      });
+      const wantEngine = col !== r.col && r.col >= 0 && r.col < WIDTH;
+      const played = await send({ type: "debugExtra", moves: turn.moves, col });
       if (computerTurnStale(turn.generation)) return;
-      if (x.type === "debugExtra") {
-        extra = x.extra;
-        if (wantBest) {
-          extra = extra ? `${extra}, best column ${r.col + 1}` : `best column ${r.col + 1}`;
-          if (x.bestExtra) extra = `${extra}, ${x.bestExtra}`;
-        }
+      if (played.type === "debugExtra") extra = played.extra;
+      if (wantEngine) {
+        const found = await send({ type: "debugExtra", moves: turn.moves, col: r.col });
+        if (computerTurnStale(turn.generation)) return;
+        const engineExtra = found.type === "debugExtra" ? found.extra : "";
+        const poorer =
+          `engine found column ${r.col + 1}` +
+          (engineExtra ? `, ${engineExtra}` : "") +
+          `, but ${turn.engineName} played a poorer move`;
+        extra = extra ? `${extra}; ${poorer}` : poorer;
       }
     }
     cpuTimer = window.setTimeout(() => {

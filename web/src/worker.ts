@@ -150,13 +150,11 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
         break;
       }
       case "debugExtra": {
-        const moves = u8(msg.moves);
-        const extra = engine.debugExtra(moves, msg.col);
-        const bestExtra =
-          msg.bestCol !== undefined && msg.bestCol !== msg.col
-            ? engine.debugExtra(moves, msg.bestCol)
-            : undefined;
-        reply({ id: msg.id, type: "debugExtra", extra, bestExtra });
+        reply({
+          id: msg.id,
+          type: "debugExtra",
+          extra: engine.debugExtra(u8(msg.moves), msg.col),
+        });
         break;
       }
       case "saveTT":
