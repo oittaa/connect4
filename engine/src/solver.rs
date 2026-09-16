@@ -464,8 +464,8 @@ impl Solver {
         Some((col, result, scores))
     }
 
-    /// Select a move for gameplay. A move-book hit performs no score search,
-    /// does not add an entry to the transposition table, and leaves
+    /// Select a move for gameplay. Prefers the score book when it has this
+    /// position. Else a move-book hit performs no score search and leaves
     /// `last_move_scores` unset. Otherwise behaves like `best_move`.
     pub fn select_move(&mut self, pos: Position) -> Option<usize> {
         self.reset_nodes();
@@ -473,14 +473,19 @@ impl Solver {
         if pos.last_player_won() || pos.is_draw() {
             return None;
         }
-        if let Some(col) = self
-            .move_book
-            .as_ref()
-            .and_then(|move_book| move_book.get(&pos))
+        if self.score_book_score(&pos).is_none()
+            && self.column_scores_from_score_book(&pos).is_none()
+            && !pos.can_win_next()
         {
-            self.move_book_hit = true;
-            self.origin = MoveOrigin::MoveBook;
-            return Some(col);
+            if let Some(col) = self
+                .move_book
+                .as_ref()
+                .and_then(|move_book| move_book.get(&pos))
+            {
+                self.move_book_hit = true;
+                self.origin = MoveOrigin::MoveBook;
+                return Some(col);
+            }
         }
         self.best_move(pos).map(|(col, _, _)| col)
     }
@@ -1110,6 +1115,21 @@ mod tests {
             [INVALID_MOVE; WIDTH],
             "a move-book hit does not search"
         );
+    }
+
+    #[test]
+    fn select_move_uses_score_book_when_move_book_also_covers() {
+        let mut solver = Solver::new();
+        solver
+            .load_move_book(include_bytes!("../../web/public/books/opening.c4move"))
+            .unwrap();
+        let pos = Position::new();
+        assert!(solver.move_book().unwrap().get(&pos).is_some());
+        assert_eq!(solver.select_move(pos), Some(3));
+        assert!(!solver.move_book_hit());
+        assert_eq!(solver.move_origin(), MoveOrigin::ScoreBook);
+        assert_eq!(solver.last_score(), 1);
+        assert_eq!(solver.last_move_scores()[3], 1);
     }
 
     #[test]
