@@ -3,7 +3,7 @@
 use crate::move_book::MoveBook;
 use crate::position::{column_mask, Position, AREA, WIDTH};
 use crate::score_book::ScoreBook;
-use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
+use crate::tt::{Table, FLAG_EXACT, FLAG_LOWER, FLAG_UPPER};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
@@ -371,6 +371,12 @@ impl Solver {
             return ((AREA as i32 + 1 - pos.moves() as i32) / 2, false);
         }
 
+        if let Some((val, flag)) = self.tt.get(pos.canonical_key()) {
+            if flag == FLAG_EXACT {
+                return (val, false);
+            }
+        }
+
         let mut min = -((AREA as i32 - pos.moves() as i32) / 2);
         let mut max = (AREA as i32 + 1 - pos.moves() as i32) / 2;
 
@@ -390,6 +396,9 @@ impl Solver {
             } else {
                 min = r;
             }
+        }
+        if !self.timed_out {
+            self.tt.put(pos.canonical_key(), min, FLAG_EXACT);
         }
         (min, false)
     }
@@ -563,6 +572,9 @@ impl Solver {
 
         let key = pos.canonical_key();
         if let Some((val, flag)) = self.tt.get(key) {
+            if flag == FLAG_EXACT {
+                return val;
+            }
             if flag == FLAG_LOWER {
                 if alpha < val {
                     alpha = val;
@@ -1477,5 +1489,35 @@ mod tests {
         let again = solver.analyze(pos);
         assert!(!solver.timed_out());
         assert_eq!(again, full);
+    }
+
+    #[test]
+    fn score_position_stores_exact_and_a_second_call_hits_it() {
+        let mut solver = Solver::with_tt_log(16);
+        let pos = position("4455");
+        assert!(solver.score_book_score(&pos).is_some());
+        let mut child = pos;
+        child.play_col(2);
+        assert!(solver.score_book_score(&child).is_none());
+
+        let (score, from_book) = solver.score_position(child);
+        assert!(!from_book);
+        assert!(!solver.timed_out());
+        assert_eq!(
+            solver.tt.get(child.canonical_key()),
+            Some((score, FLAG_EXACT))
+        );
+
+        solver.tt.put(child.canonical_key(), score - 1, FLAG_LOWER);
+        assert_eq!(
+            solver.tt.get(child.canonical_key()),
+            Some((score, FLAG_EXACT))
+        );
+
+        solver.reset_nodes();
+        let (again, from_book) = solver.score_position(child);
+        assert!(!from_book);
+        assert_eq!(again, score);
+        assert_eq!(solver.node_count(), 0);
     }
 }

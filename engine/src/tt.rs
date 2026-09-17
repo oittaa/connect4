@@ -14,13 +14,20 @@ use crate::position::{MAX_SCORE, MIN_SCORE};
 
 pub const FLAG_UPPER: u8 = 1;
 pub const FLAG_LOWER: u8 = 2;
+/// Exact score (third pack band). `0` is empty, `1..=37` upper, `38..=74`
+/// lower, `75..=111` exact. Snapshot bytes `1..=74` keep their old meaning.
+pub const FLAG_EXACT: u8 = 3;
 
 const RANGE: i32 = MAX_SCORE - MIN_SCORE + 1; // 37
 
 /// `save`/`load` snapshot format: magic, version, reserved, then slot count
 /// as a `u64`, so `load` can reject a blob sized for a different table.
+/// Version 2 is required so a loader that only unpacks `1..=74` as bounds
+/// cannot misread an exact byte (`75..=111`) as a lower bound.
 const SNAPSHOT_MAGIC: &[u8; 4] = b"C4TT";
-const SNAPSHOT_VERSION: u8 = 1;
+const SNAPSHOT_VERSION: u8 = 2;
+/// Version 1 snapshots only contain empty/upper/lower bytes (`0..=74`).
+const SNAPSHOT_VERSION_V1: u8 = 1;
 const SNAPSHOT_HEADER: usize = 16;
 
 pub struct Table {
@@ -81,6 +88,15 @@ impl Table {
         }
         let i = self.index(key);
         unsafe {
+            if *self.keys.get_unchecked(i) == key as u32 {
+                let existing = *self.vals.get_unchecked(i);
+                if existing != 0 {
+                    let (_, old_flag) = unpack(existing);
+                    if old_flag == FLAG_EXACT && flag != FLAG_EXACT {
+                        return;
+                    }
+                }
+            }
             *self.keys.get_unchecked_mut(i) = key as u32;
             *self.vals.get_unchecked_mut(i) = packed;
         }
@@ -111,7 +127,7 @@ impl Table {
         if &bytes[0..4] != SNAPSHOT_MAGIC {
             return Err("bad tt snapshot magic".into());
         }
-        if bytes[4] != SNAPSHOT_VERSION {
+        if bytes[4] != SNAPSHOT_VERSION && bytes[4] != SNAPSHOT_VERSION_V1 {
             return Err(format!("unsupported tt snapshot version {}", bytes[4]));
         }
         let slots = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize;
@@ -142,6 +158,7 @@ fn pack(score: i32, flag: u8) -> u8 {
     match flag {
         FLAG_UPPER => (s - MIN_SCORE + 1) as u8,
         FLAG_LOWER => (s + MAX_SCORE - 2 * MIN_SCORE + 2) as u8,
+        FLAG_EXACT => (s - MIN_SCORE + 2 * RANGE + 1) as u8,
         _ => 0,
     }
 }
@@ -149,7 +166,9 @@ fn pack(score: i32, flag: u8) -> u8 {
 #[inline]
 fn unpack(val: u8) -> (i32, u8) {
     let v = val as i32;
-    if v > RANGE {
+    if v > 2 * RANGE {
+        (v + MIN_SCORE - 2 * RANGE - 1, FLAG_EXACT)
+    } else if v > RANGE {
         (v + 2 * MIN_SCORE - MAX_SCORE - 2, FLAG_LOWER)
     } else {
         (v + MIN_SCORE - 1, FLAG_UPPER)
@@ -219,9 +238,42 @@ mod tests {
             t.put(12345, s, FLAG_UPPER);
             assert_eq!(t.get(12345), Some((s, FLAG_UPPER)), "upper {s}");
         }
+        for s in [MIN_SCORE, -3, 0, 4, MAX_SCORE] {
+            t.put(12345, s, FLAG_EXACT);
+            assert_eq!(t.get(12345), Some((s, FLAG_EXACT)), "exact {s}");
+        }
         assert_eq!(t.get(1), None);
         t.put(99, 0, FLAG_EMPTY);
         assert_eq!(t.get(99), None);
+    }
+
+    #[test]
+    fn pack_bands_leave_one_through_seventy_four_unchanged() {
+        for s in MIN_SCORE..=MAX_SCORE {
+            let upper = pack(s, FLAG_UPPER);
+            let lower = pack(s, FLAG_LOWER);
+            let exact = pack(s, FLAG_EXACT);
+            assert!((1..=37).contains(&upper), "upper {s} -> {upper}");
+            assert!((38..=74).contains(&lower), "lower {s} -> {lower}");
+            assert!((75..=111).contains(&exact), "exact {s} -> {exact}");
+            assert_eq!(unpack(upper), (s, FLAG_UPPER));
+            assert_eq!(unpack(lower), (s, FLAG_LOWER));
+            assert_eq!(unpack(exact), (s, FLAG_EXACT));
+        }
+        assert_eq!(pack(0, FLAG_EMPTY), 0);
+    }
+
+    #[test]
+    fn put_keeps_exact_when_a_bound_collides() {
+        let mut t = Table::new(12);
+        t.put(12345, 4, FLAG_EXACT);
+        t.put(12345, 1, FLAG_LOWER);
+        t.put(12345, 7, FLAG_UPPER);
+        assert_eq!(t.get(12345), Some((4, FLAG_EXACT)));
+        t.put(12345, -2, FLAG_EXACT);
+        assert_eq!(t.get(12345), Some((-2, FLAG_EXACT)));
+        t.put(999, 0, FLAG_LOWER);
+        assert_eq!(t.get(999), Some((0, FLAG_LOWER)));
     }
 
     #[test]
@@ -229,13 +281,24 @@ mod tests {
         let mut t = Table::new(12);
         t.put(12345, 4, FLAG_LOWER);
         t.put(999, -3, FLAG_UPPER);
+        t.put(7, 2, FLAG_EXACT);
         let blob = t.save();
+        assert_eq!(blob[4], SNAPSHOT_VERSION);
 
         let mut t2 = Table::new(12);
         t2.load(&blob).unwrap();
         assert_eq!(t2.get(12345), Some((4, FLAG_LOWER)));
         assert_eq!(t2.get(999), Some((-3, FLAG_UPPER)));
+        assert_eq!(t2.get(7), Some((2, FLAG_EXACT)));
         assert_eq!(t2.get(1), None);
+
+        let mut v1 = blob.clone();
+        v1[4] = SNAPSHOT_VERSION_V1;
+        // Bound-only bytes are the same in v1; an exact byte is a v2 addition.
+        v1[SNAPSHOT_HEADER + t.size * 4 + t.index(7)] = pack(2, FLAG_LOWER);
+        t2.load(&v1).unwrap();
+        assert_eq!(t2.get(12345), Some((4, FLAG_LOWER)));
+        assert_eq!(t2.get(7), Some((2, FLAG_LOWER)));
     }
 
     #[test]
