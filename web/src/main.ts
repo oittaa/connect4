@@ -14,7 +14,6 @@ import {
   analysisReplyApplies,
   analysisScoreClass,
   formatHintScore,
-  isDraw,
   isActiveComputerTurn,
   lastMoveWin,
   planHintAndComputer,
@@ -195,7 +194,7 @@ function played(): number[] {
 
 function gameOver(): boolean {
   const m = played();
-  return lastMoveWin(m) !== null || isDraw(m) || m.length >= AREA;
+  return lastMoveWin(m) !== null || m.length >= AREA;
 }
 
 /** Persist the warm TT once per finished game, not on every turn or search. */
