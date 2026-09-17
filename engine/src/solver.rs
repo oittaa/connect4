@@ -557,10 +557,6 @@ impl Solver {
             }
         }
 
-        if let Some(s) = self.score_book_score(&pos) {
-            return s;
-        }
-
         let key = pos.canonical_key();
         if let Some((val, flag)) = self.tt.get(key) {
             if flag == FLAG_LOWER {
