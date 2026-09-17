@@ -46,8 +46,8 @@ function mediumMove(scores: number[], random: () => number = Math.random): numbe
 }
 
 /**
- * Medium: take wins/blocks, then rank from complete move scores, else
- * keep the engine column most of the time or leak to a non-losing legal drop.
+ * Rank from complete move scores, else keep the engine column most of
+ * the time or leak to a non-losing legal drop.
  */
 function pickMedium(
   moves: number[],
@@ -55,9 +55,6 @@ function pickMedium(
   moveScores: CompleteColumnScores | null,
   random: () => number = Math.random,
 ): number | null {
-  const forced = forcedWinOrBlock(moves);
-  if (forced !== null) return forced;
-
   const ranked = moveScores === null ? null : mediumMove(moveScores, random);
   if (ranked !== null) return ranked;
 

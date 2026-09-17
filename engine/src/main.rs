@@ -472,7 +472,6 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
     let mut ok = 0usize;
     let mut fail = 0usize;
     let mut total_nodes = 0u64;
-    let mut total_us = 0u64;
     let start = std::time::Instant::now();
     for (n, line) in io::BufReader::new(f).lines().enumerate() {
         if n >= limit {
@@ -495,7 +494,6 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
         solver.reset_nodes();
         let r = solver.solve(pos);
         total_nodes += r.nodes;
-        total_us += r.micros;
         if r.score != expect {
             eprintln!(
                 "FAIL {}: got {} want {}  seq={seq}  nodes={}",
@@ -527,7 +525,6 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
             0.0
         }
     );
-    let _ = total_us;
     if fail > 0 {
         process::exit(1);
     }

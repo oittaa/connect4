@@ -196,8 +196,8 @@ test("a move-book computer turn shows the certified rank without delaying the mo
   await setRole(page, 1, "perfect");
   await setRole(page, 0, "perfect");
   await page.locator("#analyze").check();
-  // The certified rank is exact from the preview on and never changes,
-  // however the background fill later completes the other columns.
+  // The certified rank is exact from the preview on and never changes.
+  // Active computer turns do not request analysis of the remaining columns.
   await expect(page.locator("#scores span").nth(1)).toHaveText("W1");
   await expect(page.locator(".disc")).toHaveCount(9, { timeout: 2500 });
   expect(await boardBox(page)).toEqual(box);

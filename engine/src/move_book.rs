@@ -14,7 +14,7 @@ const CHECKSUM_CRC32: u8 = 1;
 const FIXED_HEADER_LEN: usize = 20;
 const DIRECTORY_ENTRY_LEN: usize = 16;
 pub const MAX_MOVE_BOOK_PLY: u8 = 11;
-pub const UNKNOWN_MOVE: u8 = 7;
+const UNKNOWN_MOVE: u8 = 7;
 
 pub const EXPECTED_SLOT_COUNTS: [u32; MAX_MOVE_BOOK_PLY as usize + 1] = [
     1, 4, 32, 132, 660, 2_360, 9_440, 30_240, 104_580, 304_920, 941_472, 2_529_912,
@@ -102,10 +102,6 @@ impl MoveBook {
     /// Last move supplied by a complete move book (the stored board's next move).
     pub fn moves_covered(&self) -> u8 {
         self.max_ply + 1
-    }
-
-    pub fn slots(&self) -> u32 {
-        self.sections.iter().map(|section| section.slots).sum()
     }
 
     pub fn payload_bytes(&self) -> usize {

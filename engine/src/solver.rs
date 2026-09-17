@@ -95,15 +95,6 @@ impl Solver {
         self.move_book_hit
     }
 
-    /// Column scores discovered by the most recent `best_move`/`select_move`
-    /// call. Exact where a proof or a certified move-book score filled them,
-    /// `INVALID_MOVE` elsewhere. An uncertified move-book hit leaves this
-    /// all-`INVALID_MOVE` since it does not search. Valid only until the
-    /// next call that resets stats.
-    pub fn last_move_scores(&self) -> [i32; WIDTH] {
-        self.last_move_scores
-    }
-
     /// The single raw move-book read path. Every other method goes through
     /// this; nothing calls `move_book.get` directly.
     fn book_col(&self, pos: &Position) -> Option<usize> {
@@ -623,10 +614,6 @@ impl Solver {
     /// Recursively fill a score book with exact scores up to `max_depth` plies.
     /// Positions already in `score_book` are not re-solved; their children are still
     /// expanded so a depth-2 file can be grown to depth 4.
-    pub fn fill_score_book(&mut self, pos: Position, max_depth: u8, score_book: &mut ScoreBook) {
-        self.fill_score_book_with(pos, max_depth, score_book, 1, |_| {});
-    }
-
     pub fn fill_score_book_with<F: FnMut(&ScoreBook) + Send>(
         &mut self,
         pos: Position,
@@ -1061,7 +1048,7 @@ mod tests {
     fn fill_score_book_depth1_is_five_canonical_entries() {
         let mut s = Solver::new();
         let mut b = ScoreBook::new();
-        s.fill_score_book(Position::new(), 1, &mut b);
+        s.fill_score_book_with(Position::new(), 1, &mut b, 1, |_| {});
         assert_eq!(b.len(), 5);
         let mut edge = Position::new();
         edge.play_col(0);
@@ -1075,14 +1062,14 @@ mod tests {
     fn fill_score_book_continues_from_shallower() {
         let mut s = Solver::new();
         let mut b = ScoreBook::new();
-        s.fill_score_book(Position::new(), 0, &mut b);
+        s.fill_score_book_with(Position::new(), 0, &mut b, 1, |_| {});
         assert_eq!(b.len(), 1);
         assert_eq!(b.depth(), 0);
-        s.fill_score_book(Position::new(), 1, &mut b);
+        s.fill_score_book_with(Position::new(), 1, &mut b, 1, |_| {});
         assert_eq!(b.len(), 5);
         assert_eq!(b.depth(), 1);
         let n = b.len();
-        s.fill_score_book(Position::new(), 1, &mut b);
+        s.fill_score_book_with(Position::new(), 1, &mut b, 1, |_| {});
         assert_eq!(b.len(), n, "second pass must not re-insert");
     }
 
@@ -1150,8 +1137,7 @@ mod tests {
         assert!(!solver.timed_out());
         assert!(solver.move_book_hit());
         assert_eq!(
-            solver.last_move_scores(),
-            [INVALID_MOVE; WIDTH],
+            solver.last_move_scores, [INVALID_MOVE; WIDTH],
             "a move-book hit does not search"
         );
     }
@@ -1163,7 +1149,7 @@ mod tests {
         pos.play_seq("4455");
         assert_eq!(solver.select_move(pos), Some(2));
         assert!(!solver.move_book_hit());
-        let scores = solver.last_move_scores();
+        let scores = solver.search_hint_scores(&pos);
         assert_eq!(scores[2], 18, "the chosen column's score is not discarded");
         assert_eq!(scores[3], INVALID_MOVE);
         assert_eq!(scores[4], INVALID_MOVE);
@@ -1254,7 +1240,7 @@ mod tests {
         assert_eq!(solver.node_count(), nodes);
         assert!(solver.timed_out());
         assert!(!solver.move_book_hit());
-        assert_eq!(solver.last_move_scores(), [INVALID_MOVE; WIDTH]);
+        assert_eq!(solver.last_move_scores, [INVALID_MOVE; WIDTH]);
 
         // An uncertified suggestion carries no score and no proof.
         let (bare_scores, bare_book, bare_proven) = solver.hint_preview(&bare);
@@ -1321,7 +1307,7 @@ mod tests {
         assert!(solver.move_book_hit());
         assert_eq!(solver.node_count(), 0);
         assert!(!solver.timed_out());
-        assert_eq!(solver.last_move_scores()[5], 1);
+        assert_eq!(solver.search_hint_scores(&pos)[5], 1);
     }
 
     #[test]
@@ -1393,7 +1379,7 @@ mod tests {
         assert_eq!(scores[col], 18);
         assert_eq!(scores[3], INVALID_MOVE);
         assert_eq!(scores[4], INVALID_MOVE);
-        assert_eq!(solver.last_move_scores(), scores);
+        assert_eq!(solver.last_move_scores, scores);
         assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
         assert_eq!(solver.node_count(), result.nodes);
         assert!(solver.column_scores_from_score_book(&pos).is_none());
@@ -1405,7 +1391,7 @@ mod tests {
         interrupted.best_move(pos).unwrap();
         assert!(interrupted.timed_out());
         assert_eq!(interrupted.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
-        assert_eq!(interrupted.last_move_scores(), [INVALID_MOVE; WIDTH]);
+        assert_eq!(interrupted.last_move_scores, [INVALID_MOVE; WIDTH]);
         assert_eq!(interrupted.node_count(), 1);
         assert!(interrupted.timed_out());
     }

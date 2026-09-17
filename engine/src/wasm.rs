@@ -122,15 +122,6 @@ impl WasmEngine {
         self.solver.move_book_hit()
     }
 
-    /// Unique 49-bit key as a string.
-    pub fn key(&self, moves: &[u8]) -> Option<String> {
-        let mut p = Position::new();
-        if !p.play_moves(moves) {
-            return None;
-        }
-        Some(p.canonical_key().to_string())
-    }
-
     /// Copy the transposition table out as bytes, for IndexedDB persistence.
     #[wasm_bindgen(js_name = ttSave)]
     pub fn tt_save(&self) -> Vec<u8> {
@@ -158,14 +149,6 @@ impl WasmEngine {
             .iter()
             .map(|&s| s as i16)
             .collect()
-    }
-
-    pub fn solve(&mut self, moves: &[u8]) -> i8 {
-        let mut p = Position::new();
-        if !p.play_moves(moves) {
-            return INVALID_MOVE as i8;
-        }
-        self.solver.solve(p).score as i8
     }
 
     /// 7 scores, `INVALID_MOVE` (-1000 as i16) for full or unfinished columns.
