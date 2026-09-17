@@ -122,11 +122,9 @@ impl Position {
     /// Even-row parity: `Some(1)` second-player win, `Some(0)` draw, `None` if
     /// it does not apply.
     pub(crate) fn xevens(&self) -> Option<i8> {
-        let (p1, p2) = if self.moves.is_multiple_of(2) {
-            (self.current, self.current ^ self.mask)
-        } else {
-            (self.current ^ self.mask, self.current)
-        };
+        debug_assert!(self.moves.is_multiple_of(2));
+        let p1 = self.current;
+        let p2 = self.current ^ self.mask;
         let encoded = 2u64.wrapping_mul(p1).wrapping_add(p2).wrapping_add(BOTTOM);
         let xe = p2 | (ALTX & !encoded);
         let oe = BOARD.wrapping_sub(xe);
@@ -400,7 +398,8 @@ mod tests {
             ("45461667", None),
             ("35333571", None),
             ("13333111", None),
-            ("4", None),
+            ("6614446666373154", Some(1)),
+            ("23163416124767223154467471272416755633", Some(0)),
         ] {
             let mut pos = Position::new();
             assert_eq!(pos.play_seq(seq), seq.len(), "{seq}");
