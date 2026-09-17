@@ -11,17 +11,18 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process;
 
-fn usage() -> ! {
-    eprintln!(
-        "\
+const USAGE: &str = "\
 c4solver — perfect Connect 4
 
 Usage:
-  c4solver solve [MOVES]          score a position (1-based column digits)
-  c4solver analyze [MOVES]        score each legal column
-  c4solver bench [--score-book FILE] [--limit N] FILE
+  c4solver solve [MOVES] [--no-book]
+                                  score a position (1-based column digits)
+  c4solver analyze [MOVES] [--no-book]
+                                  score each legal column
+  c4solver bench [--score-book FILE] [--limit N] [--no-book] FILE
                                   run a Pons-style test file (seq score)
-  c4solver empty [--score-book FILE]
+  c4solver empty [--score-book FILE] [--write-score-book FILE] [--no-book]
+                                  solve empty board (first winning move)
   c4solver gen-score-book --moves N --out FILE [--from-score-book FILE] [--threads N]
   c4solver convert-score-to-move --score-book FILE --out FILE
   c4solver gen-move-book --moves N --out FILE [--score-book FILE] [--from-move-book FILE]
@@ -38,8 +39,10 @@ Conversion preserves that coverage; validation needs a score book covering
 at least as many moves as the move book.
 
 MOVES is a string of digits 1-7, e.g. 444526. Empty string = empty board.
-"
-    );
+";
+
+fn usage() -> ! {
+    eprint!("{USAGE}");
     process::exit(2);
 }
 
@@ -122,6 +125,14 @@ fn load_score_book_opt(solver: &mut Solver, path: Option<&str>) {
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.is_empty() {
+        usage();
+    }
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        print!("{USAGE}");
+        process::exit(0);
+    }
+    if let Err(err) = validate_args(&args) {
+        eprintln!("error: {err}\n");
         usage();
     }
     match args[0].as_str() {
@@ -280,10 +291,6 @@ fn requested_moves(args: &[String], maximum: u8) -> Result<u8, String> {
 }
 
 fn run_score_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    validate_options(
-        args,
-        &["--moves", "--out", "--from-score-book", "--threads"],
-    )?;
     let moves = requested_moves(args, MAX_SCORE_BOOK_PLY)?;
     let out = required_arg(args, "--out")?;
     let source = arg_value(args, "--from-score-book");
@@ -334,23 +341,6 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let started = std::time::Instant::now();
     let generating = args[0] == "gen-move-book";
     let validating = args[0] == "validate-move-book";
-    validate_options(
-        args,
-        if generating {
-            &[
-                "--moves",
-                "--out",
-                "--score-book",
-                "--from-move-book",
-                "--threads",
-                "--max-jobs",
-            ]
-        } else if validating {
-            &["--score-book", "--move-book"]
-        } else {
-            &["--score-book", "--out"]
-        },
-    )?;
     let path = required_arg(args, if validating { "--move-book" } else { "--out" })?;
     let score_book = if let Some(source) = arg_value(args, "--score-book") {
         ScoreBook::load(&fs::read(source)?)?
@@ -422,20 +412,46 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn validate_options(args: &[String], allowed: &[&str]) -> Result<(), String> {
-    for pair in args[1..].chunks(2) {
-        if pair[0] == "--depth" {
+fn validate_args(args: &[String]) -> Result<(), String> {
+    let cmd = args[0].as_str();
+    let allowed: &[&str] = match cmd {
+        "solve" | "analyze" => &["--no-book"],
+        "empty" => &["--score-book", "--write-score-book", "--no-book"],
+        "bench" => &["--score-book", "--limit", "--no-book"],
+        "gen-score-book" => &["--moves", "--out", "--from-score-book", "--threads"],
+        "convert-score-to-move" => &["--score-book", "--out"],
+        "gen-move-book" => &[
+            "--moves",
+            "--out",
+            "--score-book",
+            "--from-move-book",
+            "--threads",
+            "--max-jobs",
+        ],
+        "validate-move-book" => &["--score-book", "--move-book"],
+        _ => return Err(format!("unknown command '{cmd}'")),
+    };
+    let mut i = 1;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "--depth" {
             return Err("use --moves N for instant moves through move N".into());
         }
-        if !allowed.contains(&pair[0].as_str()) {
-            return Err(format!("unknown option {}", pair[0]));
+        if a.starts_with('-') {
+            if !allowed.contains(&a.as_str()) {
+                return Err(format!("unknown option '{a}' for {cmd}"));
+            }
+            if a != "--no-book" {
+                i += 1;
+                if i >= args.len() || args[i].starts_with("--") {
+                    return Err(format!("missing value for {a}"));
+                }
+                if a == "--threads" && args[i].parse::<usize>().ok().filter(|&n| n > 0).is_none() {
+                    return Err("--threads must be a positive integer".into());
+                }
+            }
         }
-        if pair.len() != 2 || pair[1].starts_with("--") {
-            return Err(format!("missing value for {}", pair[0]));
-        }
-        if pair[0] == "--threads" && pair[1].parse::<usize>().ok().filter(|&n| n > 0).is_none() {
-            return Err("--threads must be a positive integer".into());
-        }
+        i += 1;
     }
     Ok(())
 }
