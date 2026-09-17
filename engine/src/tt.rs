@@ -3,7 +3,7 @@
 //! - `K[i]`: truncated key (u32)
 //! - `V[i]`: packed bound+score (u8)
 //!
-//! Index is `key % prime(2^log)`. Together with a 32-bit stub this is unique
+//! Index is `key % TT_SIZE`. Together with a 32-bit stub this is unique
 //! for 49-bit Connect-4 keys (same CRT idea as Pons, who stores 25 bits and
 //! indexes with ~24). Misses touch 4-byte keys, not an 8-byte struct.
 //!
@@ -23,41 +23,43 @@ const SNAPSHOT_MAGIC: &[u8; 4] = b"C4TT";
 const SNAPSHOT_VERSION: u8 = 1;
 const SNAPSHOT_HEADER: usize = 16;
 
+/// Compile-time constant transposition table size:
+/// - 2^24 prime (16,777,259) for native (~84 MiB)
+/// - 2^22 prime (4,194,319) for wasm32 (~21 MiB)
+pub const TT_SIZE: usize = if cfg!(target_arch = "wasm32") {
+    4_194_319
+} else {
+    16_777_259
+};
+
 pub struct Table {
     keys: Box<[u32]>,
     vals: Box<[u8]>,
-    size: usize,
 }
 
-/// Solver clamps `--tt-bits` to 16..=27. `Table::new` also allows 12 for tests.
-const MIN_LOG: u32 = 12;
-const MAX_LOG: u32 = 27;
-const PRIME_LEN: usize = (MAX_LOG - MIN_LOG + 1) as usize;
-
-const PRIMES: [usize; PRIME_LEN] = {
-    let mut t = [0usize; PRIME_LEN];
-    let mut log = MIN_LOG;
-    while log <= MAX_LOG {
-        t[(log - MIN_LOG) as usize] = next_prime(1usize << log);
-        log += 1;
+impl Default for Table {
+    fn default() -> Self {
+        Self::new()
     }
-    t
-};
+}
 
 impl Table {
-    pub fn new(log_size: u32) -> Self {
-        let log_size = log_size.clamp(MIN_LOG, MAX_LOG);
-        let size = PRIMES[(log_size - MIN_LOG) as usize];
-        let mut keys = vec![0u32; size].into_boxed_slice();
-        let mut vals = vec![0u8; size].into_boxed_slice();
+    pub fn new() -> Self {
+        let mut keys = vec![0u32; TT_SIZE].into_boxed_slice();
+        let mut vals = vec![0u8; TT_SIZE].into_boxed_slice();
         advise_huge_pages(&mut keys);
         advise_huge_pages(&mut vals);
-        Self { keys, vals, size }
+        Self { keys, vals }
     }
 
-    #[inline]
+    #[inline(always)]
     fn index(&self, key: u64) -> usize {
-        (key % self.size as u64) as usize
+        (key % TT_SIZE as u64) as usize
+    }
+
+    #[inline(always)]
+    pub fn size(&self) -> usize {
+        TT_SIZE
     }
 
     #[inline]
@@ -89,11 +91,11 @@ impl Table {
     /// Serialize as `magic(4) + version(1) + reserved(3) + slot count(u64) +
     /// keys (u32 each) + vals (u8 each)`, for persisting a warm table.
     pub fn save(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(SNAPSHOT_HEADER + self.size * 5);
+        let mut out = Vec::with_capacity(SNAPSHOT_HEADER + TT_SIZE * 5);
         out.extend_from_slice(SNAPSHOT_MAGIC);
         out.push(SNAPSHOT_VERSION);
         out.extend_from_slice(&[0, 0, 0]);
-        out.extend_from_slice(&(self.size as u64).to_le_bytes());
+        out.extend_from_slice(&(TT_SIZE as u64).to_le_bytes());
         for k in self.keys.iter() {
             out.extend_from_slice(&k.to_le_bytes());
         }
@@ -115,14 +117,14 @@ impl Table {
             return Err(format!("unsupported tt snapshot version {}", bytes[4]));
         }
         let slots = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as usize;
-        if slots != self.size {
+        if slots != TT_SIZE {
             return Err(format!(
                 "tt size mismatch: table has {} slots, snapshot has {slots}",
-                self.size
+                TT_SIZE
             ));
         }
-        let keys_len = self.size * 4;
-        if bytes.len() != SNAPSHOT_HEADER + keys_len + self.size {
+        let keys_len = TT_SIZE * 4;
+        if bytes.len() != SNAPSHOT_HEADER + keys_len + TT_SIZE {
             return Err("tt snapshot length mismatch".into());
         }
         let key_bytes = &bytes[SNAPSHOT_HEADER..SNAPSHOT_HEADER + keys_len];
@@ -156,36 +158,6 @@ fn unpack(val: u8) -> (i32, u8) {
     }
 }
 
-const fn next_prime(n: usize) -> usize {
-    let mut x = n | 1;
-    while !is_prime(x) {
-        x += 2;
-    }
-    x
-}
-
-const fn is_prime(n: usize) -> bool {
-    if n < 2 {
-        return false;
-    }
-    if n.is_multiple_of(2) {
-        return n == 2;
-    }
-    if n.is_multiple_of(3) {
-        return n == 3;
-    }
-    // 6k±1 wheel: past 2 and 3, every prime is 6k+1 or 6k+5, so we only
-    // need to trial-divide by d and d+2 each step, skipping multiples of 2 and 3.
-    let mut d = 5;
-    while d <= n / d {
-        if n.is_multiple_of(d) || n.is_multiple_of(d + 2) {
-            return false;
-        }
-        d += 6;
-    }
-    true
-}
-
 fn advise_huge_pages<T>(slice: &mut [T]) {
     #[cfg(all(unix, not(target_arch = "wasm32")))]
     {
@@ -198,12 +170,6 @@ fn advise_huge_pages<T>(slice: &mut [T]) {
     let _ = slice;
 }
 
-impl Default for Table {
-    fn default() -> Self {
-        Self::new(24)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,7 +178,7 @@ mod tests {
 
     #[test]
     fn put_get() {
-        let mut t = Table::new(12);
+        let mut t = Table::new();
         for s in [MIN_SCORE, -3, 0, 4, MAX_SCORE] {
             t.put(12345, s, FLAG_LOWER);
             assert_eq!(t.get(12345), Some((s, FLAG_LOWER)), "lower {s}");
@@ -226,12 +192,12 @@ mod tests {
 
     #[test]
     fn save_load_roundtrip() {
-        let mut t = Table::new(12);
+        let mut t = Table::new();
         t.put(12345, 4, FLAG_LOWER);
         t.put(999, -3, FLAG_UPPER);
         let blob = t.save();
 
-        let mut t2 = Table::new(12);
+        let mut t2 = Table::new();
         t2.load(&blob).unwrap();
         assert_eq!(t2.get(12345), Some((4, FLAG_LOWER)));
         assert_eq!(t2.get(999), Some((-3, FLAG_UPPER)));
@@ -240,11 +206,12 @@ mod tests {
 
     #[test]
     fn load_rejects_wrong_size_magic_version_and_truncation() {
-        let mut t = Table::new(12);
+        let mut t = Table::new();
         let blob = t.save();
 
-        let mut wrong_size = Table::new(13);
-        assert!(wrong_size.load(&blob).is_err());
+        let mut wrong_size_blob = blob.clone();
+        wrong_size_blob[8..16].copy_from_slice(&(999999u64).to_le_bytes());
+        assert!(t.load(&wrong_size_blob).is_err());
 
         assert!(t.load(b"short").is_err());
 
@@ -258,15 +225,5 @@ mod tests {
 
         let truncated = &blob[..blob.len() - 1];
         assert!(t.load(truncated).is_err());
-    }
-
-    #[test]
-    fn primes_table_unchanged() {
-        // Next prime after each 2^log for log in MIN_LOG..=MAX_LOG (12..=27).
-        const EXPECTED: [usize; PRIME_LEN] = [
-            4099, 8209, 16411, 32771, 65537, 131101, 262147, 524309, 1048583, 2097169, 4194319,
-            8388617, 16777259, 33554467, 67108879, 134217757,
-        ];
-        assert_eq!(PRIMES, EXPECTED);
     }
 }

@@ -22,10 +22,10 @@ Usage:
   c4solver bench [--score-book FILE] [--limit N] FILE
                                   run a Pons-style test file (seq score)
   c4solver empty [--score-book FILE]
-  c4solver gen-score-book --moves N --out FILE [--from-score-book FILE] [--tt-bits N] [--threads N]
+  c4solver gen-score-book --moves N --out FILE [--from-score-book FILE] [--threads N]
   c4solver convert-score-to-move --score-book FILE --out FILE
   c4solver gen-move-book --moves N --out FILE [--score-book FILE] [--from-move-book FILE]
-                         [--tt-bits N] [--threads N] [--max-jobs N]
+                         [--threads N] [--max-jobs N]
   c4solver validate-move-book --score-book FILE --move-book FILE
 
 For gen-score-book, if --out already exists, generation continues from it
@@ -38,8 +38,6 @@ Conversion preserves that coverage; validation needs a score book covering
 at least as many moves as the move book.
 
 MOVES is a string of digits 1-7, e.g. 444526. Empty string = empty board.
---tt-bits N  transposition table size 2^N (default 24). 25–26 can help on
-             CPUs with a large L3 (e.g. Ryzen X3D).
 "
     );
     process::exit(2);
@@ -52,13 +50,6 @@ fn parse_moves(s: &str) -> Position {
         eprintln!("warning: stopped at index {n} of {s:?}");
     }
     p
-}
-
-fn tt_bits(args: &[String]) -> u32 {
-    args.windows(2)
-        .find(|w| w[0] == "--tt-bits")
-        .and_then(|w| w[1].parse().ok())
-        .unwrap_or(24)
 }
 
 fn thread_count(args: &[String]) -> usize {
@@ -74,9 +65,12 @@ fn thread_count(args: &[String]) -> usize {
 }
 
 fn make_solver(args: &[String]) -> Solver {
-    let bits = tt_bits(args);
-    eprintln!("TT 2^{bits}");
-    Solver::with_tt_log(bits)
+    let mut solver = Solver::new();
+    if args.iter().any(|a| a == "--no-book") {
+        eprintln!("books disabled (pure search)");
+        solver.clear_all_books();
+    }
+    solver
 }
 
 fn positional_seq(args: &[String]) -> &str {
@@ -86,8 +80,7 @@ fn positional_seq(args: &[String]) -> &str {
             skip_val = false;
             continue;
         }
-        if a == "--tt-bits"
-            || a == "--score-book"
+        if a == "--score-book"
             || a == "--from-score-book"
             || a == "--out"
             || a == "--moves"
@@ -289,13 +282,7 @@ fn requested_moves(args: &[String], maximum: u8) -> Result<u8, String> {
 fn run_score_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     validate_options(
         args,
-        &[
-            "--moves",
-            "--out",
-            "--from-score-book",
-            "--tt-bits",
-            "--threads",
-        ],
+        &["--moves", "--out", "--from-score-book", "--threads"],
     )?;
     let moves = requested_moves(args, MAX_SCORE_BOOK_PLY)?;
     let out = required_arg(args, "--out")?;
@@ -356,7 +343,6 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 "--score-book",
                 "--from-move-book",
                 "--threads",
-                "--tt-bits",
                 "--max-jobs",
             ]
         } else if validating {
@@ -378,7 +364,6 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         let options = GenerateOptions {
             max_ply: moves - 1,
             threads: thread_count(args),
-            tt_bits: tt_bits(args),
             max_jobs: arg_value(args, "--max-jobs").map(str::parse).transpose()?,
         };
         let seed_move_book = arg_value(args, "--from-move-book")
@@ -388,8 +373,8 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .transpose()?;
         let checkpoint = format!("{path}.checkpoint");
         eprintln!(
-            "generating move book for moves through {moves}, {} threads, TT 2^{} per thread",
-            options.threads, options.tt_bits
+            "generating move book for moves through {moves}, {} threads",
+            options.threads
         );
         let mut reported_at = started;
         let result = generate(
@@ -450,15 +435,6 @@ fn validate_options(args: &[String], allowed: &[&str]) -> Result<(), String> {
         }
         if pair[0] == "--threads" && pair[1].parse::<usize>().ok().filter(|&n| n > 0).is_none() {
             return Err("--threads must be a positive integer".into());
-        }
-        if pair[0] == "--tt-bits"
-            && pair[1]
-                .parse::<u32>()
-                .ok()
-                .filter(|n| (16..=27).contains(n))
-                .is_none()
-        {
-            return Err("--tt-bits must be between 16 and 27".into());
         }
     }
     Ok(())

@@ -19,7 +19,6 @@ pub struct GenerateOptions {
     /// Stored position depth: 11 supplies the twelfth move.
     pub max_ply: u8,
     pub threads: usize,
-    pub tt_bits: u32,
     /// Optional bounded run. Unfinished output remains in the checkpoint only.
     pub max_jobs: Option<usize>,
 }
@@ -240,7 +239,7 @@ pub fn generate(
             let sender = sender.clone();
             let next = &next;
             scope.spawn(move || {
-                let mut solver = Solver::with_tt_log(options.tt_bits);
+                let mut solver = Solver::new();
                 solver.set_score_book(score_book.clone());
                 while let Some(&key) = jobs.get(next.fetch_add(1, Ordering::Relaxed)) {
                     if sender
@@ -338,7 +337,6 @@ mod tests {
         GenerateOptions {
             max_ply: 3,
             threads: 2,
-            tt_bits: 16,
             max_jobs,
         }
     }
@@ -450,7 +448,7 @@ mod tests {
 
     #[test]
     fn frontier_search_proves_a_move_and_rejects_timeout() {
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         assert_eq!(pos.play_seq("4455"), 4);
         let (record, nodes) = solve_frontier(&mut solver, pos.key3()).unwrap();
@@ -458,7 +456,7 @@ mod tests {
         assert!(nodes > 0);
         let mut child = Position::from_key3(pos.key3()).unwrap();
         child.play_col(record.col as usize);
-        assert_eq!(Solver::with_tt_log(16).solve(child).score, -18);
+        assert_eq!(Solver::new().solve(child).score, -18);
         solver.set_timeout_ms(1);
         let mut expensive = Position::new();
         assert_eq!(expensive.play_seq("4444"), 4);

@@ -33,7 +33,7 @@ fn main() {
         assert_eq!(pos.play_seq(seq), seq.len());
         for round in 1..=repeats {
             // Match the browser's roughly 20 MiB TT budget on native builds.
-            let mut solver = Solver::with_tt_log(22);
+            let mut solver = Solver::new();
             if depth == 8 {
                 solver.set_score_book(score_book8.clone());
             }
