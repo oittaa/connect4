@@ -229,7 +229,10 @@ function initBoard(): void {
       cell.dataset.row = String(r);
       col.appendChild(cell);
     }
-    col.addEventListener("click", () => tryDrop(c));
+    col.addEventListener("click", (e) => {
+      tryDrop(c);
+      (e.currentTarget as HTMLButtonElement).blur();
+    });
     boardEl.appendChild(col);
   }
 }

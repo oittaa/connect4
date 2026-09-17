@@ -47,7 +47,10 @@ h1 { margin: 0; font-size: 36px; line-height: 1.12; letter-spacing: -1.8px; font
   box-shadow: inset 0 1px 1px #ffffff40, 0 6px 0 #1d415b, 0 13px 20px #21405718;
 }
 .col { appearance: none; display: grid; grid-template-rows: repeat(6, 1fr); gap: var(--board-gap); min-width: 0; width: 100%; padding: 0; border: 0; border-radius: 30px; background: transparent; cursor: pointer; transition: background 160ms ease, box-shadow 160ms ease; }
-.col:not(.disabled):hover { background: #ffffff12; box-shadow: 0 0 0 4px #ffffff12; }
+@media (hover: hover) {
+  .col:not(.disabled):hover { background: #ffffff12; }
+  .col:not(.disabled):hover:not(.best-col) { box-shadow: 0 0 0 4px #ffffff12; }
+}
 .col:focus-visible { outline: 3px solid #e8eee5; outline-offset: 4px; }
 .col.best-col { box-shadow: 0 0 0 3px #b2ddae; }
 .col.disabled { cursor: default; }
