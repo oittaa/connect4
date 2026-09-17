@@ -68,7 +68,6 @@ If you edited **both** sides, run both checklists. A green `cargo test` does not
 - Packed WASM `previewScores` is 9×`i16` (7 column scores + `bookCol` + `provenCol`). Change both Rust and TS.
 - Native TT is the 24-bit prime `16_777_259`; WASM is the 22-bit prime `4_194_319` (`TT_SIZE` in `engine/src/tt.rs`). Size is a compile-time constant on purpose (const reciprocal, not `divq` / dynamic `i64.rem_u`).
 - Solver scores are exact game-theoretic values. Tests pin them. Faster search is fine; different scores are a bug.
-- Engine tests that still call `Solver::with_tt_log(n)` are a no-op stub; they get the compile-time table.
 
 ## Local run
 
@@ -83,7 +82,7 @@ CLI (after `cargo build --release -p engine`):
 ./target/release/c4solver solve 4444
 ```
 
-`--no-book` disables the embedded 4-ply score book. Do not pass `--tt-bits`; it was removed and a leading `--tt-bits N` is parsed as the move string `N`.
+`--no-book` disables the embedded 4-ply score book.
 
 ## Cursor Cloud
 
