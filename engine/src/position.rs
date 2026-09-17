@@ -36,7 +36,6 @@ const fn bottom_mask() -> u64 {
 const BOTTOM: u64 = bottom_mask();
 const BOARD: u64 = BOTTOM * ((1u64 << HEIGHT) - 1);
 const TOP: u64 = BOTTOM << HEIGHT;
-/// Even 1-indexed rows (bits 1,3,5 per column). Tromp `ALTX` in fhourstones88 `Game.h`.
 const ALTX: u64 = {
     let col1 = (1u64 << H1) - 1;
     let altcol = (col1 >> 1) / 3;
@@ -67,7 +66,6 @@ pub fn has_won(bb: u64) -> bool {
         || haswond(bb, 1) != 0
 }
 
-/// Tromp `haswond`: bits at the lowest cell of each 4-in-a-row along `dir`.
 #[inline]
 fn haswond(x1: u64, dir: u32) -> u64 {
     let x2 = x1 & (x1 >> dir);
@@ -121,9 +119,8 @@ impl Position {
         Self::canonical_from_key(self.key())
     }
 
-    /// Tromp 2nd-player evens strategy (`fhourstones88` `Game.h`).
-    /// `Some(1)`: P2 can force a win; `Some(0)`: a draw; `None`: does not apply.
-    /// Caller must be P1 to move (`moves` even): `current` is then P1.
+    /// Even-row parity: `Some(1)` second-player win, `Some(0)` draw, `None` if
+    /// it does not apply. Caller is first to move (`moves` even).
     pub(crate) fn xevens(&self) -> Option<i8> {
         debug_assert!(self.moves.is_multiple_of(2));
         let p1 = self.current;

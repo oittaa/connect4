@@ -9,7 +9,7 @@ use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
 use std::time::{Duration, Instant};
 
 const COLUMN_ORDER: [usize; WIDTH] = [3, 4, 2, 5, 1, 6, 0];
-/// Canonical TT keys through this ply; raw `key()` after.
+/// Skip mirroring after ply 10.
 const SYMM_PLY: u8 = 10;
 pub const INVALID_MOVE: i32 = -1000;
 
@@ -577,7 +577,7 @@ impl Solver {
             }
         }
 
-        // Tromp xevens: P2 even-row strategy as an upper bound, not an exact score.
+        // Even-row parity upper bound for the player to move; not an exact score.
         if pos.moves().is_multiple_of(2) && beta >= 0 {
             if let Some(xe) = pos.xevens() {
                 let ub = if xe > 0 { -1 } else { 0 };
