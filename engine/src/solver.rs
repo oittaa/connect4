@@ -9,6 +9,8 @@ use crate::tt::{Table, FLAG_LOWER, FLAG_UPPER};
 use std::time::{Duration, Instant};
 
 const COLUMN_ORDER: [usize; WIDTH] = [3, 4, 2, 5, 1, 6, 0];
+/// Canonical TT keys through this ply; raw `key()` after.
+const SYMM_PLY: u8 = 10;
 pub const INVALID_MOVE: i32 = -1000;
 
 #[derive(Clone, Copy, Debug)]
@@ -554,7 +556,11 @@ impl Solver {
             }
         }
 
-        let key = pos.canonical_key();
+        let key = if pos.moves() <= SYMM_PLY {
+            pos.canonical_key()
+        } else {
+            pos.key()
+        };
         if let Some((val, flag)) = self.tt.get(key) {
             if flag == FLAG_LOWER {
                 if alpha < val {
@@ -567,6 +573,19 @@ impl Solver {
                 beta = val;
                 if alpha >= beta {
                     return beta;
+                }
+            }
+        }
+
+        // Tromp xevens: P2 even-row strategy as an upper bound, not an exact score.
+        if pos.moves().is_multiple_of(2) && beta >= 0 {
+            if let Some(xe) = pos.xevens() {
+                let ub = if xe > 0 { -1 } else { 0 };
+                if beta > ub {
+                    beta = ub;
+                    if alpha >= beta {
+                        return beta;
+                    }
                 }
             }
         }
@@ -1457,7 +1476,7 @@ mod tests {
         let (pos, full) = complete_analysis_timeout_pos();
         let mut solver = Solver::new();
         // Enough nodes to finish columns 3,4,2,5,1,6; not enough for column 0.
-        solver.max_nodes = 30_000;
+        solver.max_nodes = 20_000;
         let scores = solver.analyze(pos);
         assert!(solver.timed_out());
         assert_eq!(scores[0], INVALID_MOVE);

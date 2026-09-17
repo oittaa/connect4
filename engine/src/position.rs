@@ -35,6 +35,13 @@ const fn bottom_mask() -> u64 {
 
 const BOTTOM: u64 = bottom_mask();
 const BOARD: u64 = BOTTOM * ((1u64 << HEIGHT) - 1);
+const TOP: u64 = BOTTOM << HEIGHT;
+/// Even 1-indexed rows (bits 1,3,5 per column). Tromp `ALTX` in fhourstones88 `Game.h`.
+const ALTX: u64 = {
+    let col1 = (1u64 << H1) - 1;
+    let altcol = (col1 >> 1) / 3;
+    (altcol * BOTTOM) << 1
+};
 
 #[inline]
 pub const fn column_mask(col: usize) -> u64 {
@@ -54,20 +61,17 @@ const fn bottom_mask_col(col: usize) -> u64 {
 /// Alignment test on one player's stones (Tromp: 8 shifts / ands).
 #[inline]
 pub fn has_won(bb: u64) -> bool {
-    let x = bb & (bb >> 6);
-    if x & (x >> 12) != 0 {
-        return true;
-    }
-    let x = bb & (bb >> 7);
-    if x & (x >> 14) != 0 {
-        return true;
-    }
-    let x = bb & (bb >> 8);
-    if x & (x >> 16) != 0 {
-        return true;
-    }
-    let x = bb & (bb >> 1);
-    x & (x >> 2) != 0
+    haswond(bb, HEIGHT as u32) != 0
+        || haswond(bb, H1) != 0
+        || haswond(bb, (HEIGHT + 2) as u32) != 0
+        || haswond(bb, 1) != 0
+}
+
+/// Tromp `haswond`: bits at the lowest cell of each 4-in-a-row along `dir`.
+#[inline]
+fn haswond(x1: u64, dir: u32) -> u64 {
+    let x2 = x1 & (x1 >> dir);
+    x2 & (x2 >> (2 * dir))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -115,6 +119,38 @@ impl Position {
     #[inline(always)]
     pub fn canonical_key(&self) -> u64 {
         Self::canonical_from_key(self.key())
+    }
+
+    /// Tromp 2nd-player evens strategy (`fhourstones88` `Game.h`).
+    /// `Some(1)`: P2 can force a win; `Some(0)`: a draw; `None`: does not apply.
+    /// Caller must be P1 to move (`moves` even): `current` is then P1.
+    pub(crate) fn xevens(&self) -> Option<i8> {
+        debug_assert!(self.moves.is_multiple_of(2));
+        let p1 = self.current;
+        let p2 = self.current ^ self.mask;
+        let encoded = 2u64.wrapping_mul(p1).wrapping_add(p2).wrapping_add(BOTTOM);
+        let xe = p2 | (ALTX & !encoded);
+        let oe = BOARD.wrapping_sub(xe);
+        if haswond(oe, 1) != 0 {
+            return None;
+        }
+        let xeh = haswond(xe, H1);
+        let xed1 = haswond(xe, HEIGHT as u32);
+        let xed2 = haswond(xe, (HEIGHT + 2) as u32);
+        let xeany = xeh | xed1 | xed2;
+        let oeh = haswond(oe, H1);
+        let oed1 = haswond(oe, HEIGHT as u32);
+        let oed2 = haswond(oe, (HEIGHT + 2) as u32);
+        if oeh & xeany.wrapping_sub(TOP.wrapping_add(1)) != 0 {
+            return None;
+        }
+        if oed1 != 0 && (oeh | oed1) & (xeh | xed1).wrapping_sub(TOP.wrapping_add(1)) != 0 {
+            return None;
+        }
+        if oed2 != 0 && (oeh | oed2) & (xeh | xed2).wrapping_sub(TOP.wrapping_add(1)) != 0 {
+            return None;
+        }
+        Some(if xeany != 0 { 1 } else { 0 })
     }
 
     /// Return the left-right reflection of this position.
