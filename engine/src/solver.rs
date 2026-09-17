@@ -66,10 +66,6 @@ impl Solver {
         }
     }
 
-    pub fn with_tt_log(_log_size: u32) -> Self {
-        Self::new()
-    }
-
     pub fn reset_nodes(&mut self) {
         self.nodes = 0;
         self.timed_out = false;
@@ -836,7 +832,7 @@ mod tests {
 
     #[test]
     fn best_move_proves_the_four_ply_frontier_without_scoring_every_child() {
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("4455");
         assert_eq!(solver.score_book().depth(), 4);
@@ -855,7 +851,7 @@ mod tests {
 
     #[test]
     fn best_move_does_not_accept_a_timed_out_child_probe() {
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("4444");
         solver.max_nodes = 1;
@@ -869,7 +865,7 @@ mod tests {
 
     #[test]
     fn best_move_does_not_probe_against_an_unfinished_parent_score() {
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("123456");
         solver.max_nodes = 1;
@@ -890,8 +886,8 @@ mod tests {
     fn best_move_matches_full_analysis_for_wins_draws_and_losses() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../testdata/end_easy");
         let data = fs::read_to_string(path).unwrap();
-        let mut reference = Solver::with_tt_log(20);
-        let mut solver = Solver::with_tt_log(20);
+        let mut reference = Solver::new();
+        let mut solver = Solver::new();
         let mut outcomes = [false; 3];
         for line in data.lines().take(50) {
             let fields: Vec<_> = line.split_whitespace().collect();
@@ -931,7 +927,7 @@ mod tests {
 
     #[test]
     fn best_move_handles_immediate_wins_and_terminal_positions() {
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("121314");
         let (col, result, scores) = solver.best_move(pos).unwrap();
@@ -959,7 +955,7 @@ mod tests {
 
     #[test]
     fn downloaded_score_book_replaces_embedded_score_book_and_clear_restores_it() {
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("1234");
         let initial = solver.solve(pos);
@@ -989,7 +985,7 @@ mod tests {
 
     #[test]
     fn empty_download_keeps_embedded_opening_coverage() {
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         let embedded = solver.score_book().save();
         let mut empty = ScoreBook::new().save();
         // Even an empty file declaring a deeper score book must retain the fallback.
@@ -1003,7 +999,7 @@ mod tests {
 
     #[test]
     fn shallow_download_keeps_embedded_opening_coverage() {
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         let embedded = solver.score_book().save();
         solver
             .load_score_book(include_bytes!("../../books/2ply.c4book"))
@@ -1026,7 +1022,7 @@ mod tests {
         let mut sparse = ScoreBook::new();
         sparse.insert(pos.key3(), score as i8, pos.moves());
 
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver.set_score_book(sparse);
         assert_eq!(solver.score_book().depth(), 5);
         assert_eq!(solver.score_book().len(), embedded.len() + 1);
@@ -1120,7 +1116,7 @@ mod tests {
         let mut move_book = MoveBook::empty(10).unwrap();
         move_book.insert(&covered, 3).unwrap();
 
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver.set_timeout_ms(1);
         let mut expensive = Position::new();
         expensive.play_seq("123456");
@@ -1140,7 +1136,7 @@ mod tests {
 
     #[test]
     fn select_move_forwards_the_search_scores_it_finds() {
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("4455");
         assert_eq!(solver.select_move(pos), Some(2));
@@ -1153,7 +1149,7 @@ mod tests {
 
     #[test]
     fn select_move_miss_falls_back_and_terminal_resets_stats() {
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver.set_move_book(MoveBook::empty(10).unwrap());
         let pos = Position::new();
         assert_eq!(solver.select_move(pos), Some(3));
@@ -1174,7 +1170,7 @@ mod tests {
         pos.play_seq("1234");
         let mut move_book = MoveBook::empty(10).unwrap();
         move_book.insert(&pos, 2).unwrap();
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver.load_move_book(&move_book.save()).unwrap();
         assert_eq!(solver.select_move(pos), Some(2));
         assert!(solver.load_move_book(b"invalid").is_err());
@@ -1201,7 +1197,7 @@ mod tests {
         // Ply 9 is past the 8-ply score book: a suggestion with no score
         // behind it.
         let bare = position("265756512");
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver
             .load_score_book(include_bytes!("../../books/8ply.c4book"))
             .unwrap();
@@ -1252,7 +1248,7 @@ mod tests {
     fn hint_preview_proves_an_immediate_win_without_a_move_book() {
         let pos = position("7774441327613567");
         assert!(pos.is_winning_move(4));
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver.max_nodes = 1;
         let _ = solver.analyze(analysis_timeout_pos());
         assert!(solver.timed_out());
@@ -1274,7 +1270,7 @@ mod tests {
     #[test]
     fn analyze_keeps_an_immediate_win_when_it_times_out() {
         let pos = position("7774441327613567");
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver.max_nodes = 1;
         let scores = solver.analyze(pos);
         assert!(solver.timed_out());
@@ -1289,7 +1285,7 @@ mod tests {
     #[test]
     fn search_order_puts_the_move_book_column_first() {
         let pos = position("44444666");
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         assert_eq!(solver.search_order(&pos), COLUMN_ORDER);
 
         solver.set_move_book(move_book_with(pos, 5));
@@ -1298,7 +1294,7 @@ mod tests {
 
     #[test]
     fn analyze_empty_board_stays_complete_with_a_move_book() {
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver.set_move_book(move_book_with(Position::new(), 3));
         let scores = solver.analyze(Position::new());
         assert_eq!(scores, [-2, -1, 0, 1, 0, -1, -2]);
@@ -1311,7 +1307,7 @@ mod tests {
         // One node cannot finish even the first child, but the certified
         // score needs no search and must survive the timeout.
         let pos = position("44444666");
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver
             .load_score_book(include_bytes!("../../books/8ply.c4book"))
             .unwrap();
@@ -1330,7 +1326,7 @@ mod tests {
     #[test]
     fn select_move_surfaces_the_certified_book_score() {
         let pos = position("44444666");
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver
             .load_score_book(include_bytes!("../../books/8ply.c4book"))
             .unwrap();
@@ -1372,7 +1368,7 @@ mod tests {
 
     #[test]
     fn eight_ply_score_book_scores_ply_seven_but_not_ply_eight() {
-        let mut solver = Solver::with_tt_log(16);
+        let mut solver = Solver::new();
         solver
             .load_score_book(include_bytes!("../../books/8ply.c4book"))
             .unwrap();
@@ -1400,7 +1396,7 @@ mod tests {
 
     #[test]
     fn known_columns_keep_unsearched_and_aborted_children_unknown() {
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("4455");
         assert_eq!(solver.known_column_scores(&pos), [INVALID_MOVE; WIDTH]);
@@ -1418,7 +1414,7 @@ mod tests {
         assert_eq!(solver.node_count(), result.nodes);
         assert!(solver.column_scores_from_score_book(&pos).is_none());
 
-        let mut interrupted = Solver::with_tt_log(20);
+        let mut interrupted = Solver::new();
         let mut pos = Position::new();
         pos.play_seq("4444");
         interrupted.max_nodes = 1;
@@ -1438,7 +1434,7 @@ mod tests {
 
     fn complete_analysis_timeout_pos() -> (Position, [i32; WIDTH]) {
         let pos = analysis_timeout_pos();
-        let mut reference = Solver::with_tt_log(20);
+        let mut reference = Solver::new();
         let full = reference.analyze(pos);
         assert!(!reference.timed_out());
         assert_eq!(full, [-1, 0, 10, 10, -2, -2, -2]);
@@ -1448,7 +1444,7 @@ mod tests {
     #[test]
     fn analyze_timeout_during_an_early_child_leaves_columns_invalid() {
         let pos = analysis_timeout_pos();
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         solver.max_nodes = 1;
         let scores = solver.analyze(pos);
         assert!(solver.timed_out());
@@ -1459,7 +1455,7 @@ mod tests {
     #[test]
     fn analyze_timeout_during_the_last_child_keeps_prior_exact_scores() {
         let (pos, full) = complete_analysis_timeout_pos();
-        let mut solver = Solver::with_tt_log(20);
+        let mut solver = Solver::new();
         // Enough nodes to finish columns 3,4,2,5,1,6; not enough for column 0.
         solver.max_nodes = 30_000;
         let scores = solver.analyze(pos);
