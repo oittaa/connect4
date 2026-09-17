@@ -14,7 +14,7 @@ fn main() {
         let mut pos = Position::new();
         assert_eq!(pos.play_seq(seq), seq.len());
         for enabled in [false, true] {
-            let mut solver = Solver::with_tt_log(22);
+            let mut solver = Solver::new();
             solver.set_score_book(score_book.clone());
             solver.set_timeout_ms(5_000);
             if enabled {

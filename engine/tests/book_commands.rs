@@ -90,8 +90,6 @@ fn direct_generation_resumes_without_publishing_partial_moves() {
         "4",
         "--threads",
         "2",
-        "--tt-bits",
-        "16",
     ];
     let mut bounded = args.to_vec();
     bounded.extend(["--max-jobs", "5"]);
@@ -126,8 +124,6 @@ fn score_generation_fills_holes_at_the_recorded_depth() {
         "partial.c4book",
         "--threads",
         "2",
-        "--tt-bits",
-        "16",
     ]);
     assert_eq!(fs::read(path).unwrap(), ScoreBook::opening_4ply().save());
 }
@@ -185,8 +181,6 @@ fn equal_move_requests_give_both_books_the_same_coverage() {
                 path,
                 "--threads",
                 "1",
-                "--tt-bits",
-                "16",
             ];
             if command == "gen-move-book" {
                 args.extend(["--score-book", &score_path]);

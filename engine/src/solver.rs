@@ -29,8 +29,6 @@ pub struct Solver {
     check_counter: u32,
     timeout_ms: u32,
     max_nodes: u64,
-    #[cfg(not(target_arch = "wasm32"))]
-    tt_log: u32,
     move_book_hit: bool,
     /// Column scores from the most recent `best_move`/`select_move` call.
     /// `INVALID_MOVE` for columns that search did not need to visit. Not
@@ -50,13 +48,8 @@ impl Default for Solver {
 
 impl Solver {
     pub fn new() -> Self {
-        Self::with_tt_log(if cfg!(target_arch = "wasm32") { 22 } else { 24 })
-    }
-
-    pub fn with_tt_log(log_size: u32) -> Self {
-        let log_size = log_size.clamp(16, 27);
         Self {
-            tt: Table::new(log_size),
+            tt: Table::new(),
             score_book: ScoreBook::opening_4ply(),
             move_book: None,
             nodes: 0,
@@ -64,8 +57,6 @@ impl Solver {
             check_counter: 0,
             timeout_ms: 0,
             max_nodes: 0,
-            #[cfg(not(target_arch = "wasm32"))]
-            tt_log: log_size,
             move_book_hit: false,
             last_move_scores: [INVALID_MOVE; WIDTH],
             #[cfg(not(target_arch = "wasm32"))]
@@ -73,6 +64,10 @@ impl Solver {
             #[cfg(target_arch = "wasm32")]
             start_ms: 0.0,
         }
+    }
+
+    pub fn with_tt_log(_log_size: u32) -> Self {
+        Self::new()
     }
 
     pub fn reset_nodes(&mut self) {
@@ -171,6 +166,12 @@ impl Solver {
     pub fn clear_score_book(&mut self) {
         // Unload the downloaded score book and restore the embedded fallback.
         self.score_book = ScoreBook::opening_4ply();
+    }
+
+    /// Completely unload all score and move books (pure search, zero books).
+    pub fn clear_all_books(&mut self) {
+        self.score_book = ScoreBook::new();
+        self.move_book = None;
     }
 
     pub fn score_book(&self) -> &ScoreBook {
@@ -688,7 +689,6 @@ impl Solver {
         let queue = Arc::new(Mutex::new(VecDeque::from(jobs)));
         let shared_score_book = Arc::new(Mutex::new(std::mem::take(score_book)));
         let on_change = Arc::new(Mutex::new(on_change));
-        let tt_log = self.tt_log;
         let seed = self.score_book.clone();
 
         std::thread::scope(|scope| {
@@ -698,7 +698,7 @@ impl Solver {
                 let on_change = Arc::clone(&on_change);
                 let seed = seed.clone();
                 scope.spawn(move || {
-                    let mut solver = Solver::with_tt_log(tt_log);
+                    let mut solver = Solver::new();
                     solver.set_score_book(seed);
                     loop {
                         let job = {
