@@ -120,11 +120,13 @@ impl Position {
     }
 
     /// Even-row parity: `Some(1)` second-player win, `Some(0)` draw, `None` if
-    /// it does not apply. Caller is first to move (`moves` even).
+    /// it does not apply.
     pub(crate) fn xevens(&self) -> Option<i8> {
-        debug_assert!(self.moves.is_multiple_of(2));
-        let p1 = self.current;
-        let p2 = self.current ^ self.mask;
+        let (p1, p2) = if self.moves.is_multiple_of(2) {
+            (self.current, self.current ^ self.mask)
+        } else {
+            (self.current ^ self.mask, self.current)
+        };
         let encoded = 2u64.wrapping_mul(p1).wrapping_add(p2).wrapping_add(BOTTOM);
         let xe = p2 | (ALTX & !encoded);
         let oe = BOARD.wrapping_sub(xe);
@@ -389,6 +391,22 @@ fn compute_winning_position(position: u64, mask: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xevens_pins_named_positions() {
+        for (seq, want) in [
+            ("", None),
+            ("121314", None),
+            ("45461667", None),
+            ("35333571", None),
+            ("13333111", None),
+            ("4", None),
+        ] {
+            let mut pos = Position::new();
+            assert_eq!(pos.play_seq(seq), seq.len(), "{seq}");
+            assert_eq!(pos.xevens(), want, "{seq}");
+        }
+    }
 
     #[test]
     fn decode_key3_preserves_board_and_side_to_move() {
