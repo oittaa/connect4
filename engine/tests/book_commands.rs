@@ -173,15 +173,7 @@ fn equal_move_requests_give_both_books_the_same_coverage() {
             ("gen-score-book", &score_path),
             ("gen-move-book", &move_path),
         ] {
-            let mut args = vec![
-                command,
-                "--moves",
-                &count,
-                "--out",
-                path,
-                "--threads",
-                "1",
-            ];
+            let mut args = vec![command, "--moves", &count, "--out", path, "--threads", "1"];
             if command == "gen-move-book" {
                 args.extend(["--score-book", &score_path]);
             }

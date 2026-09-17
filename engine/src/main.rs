@@ -282,12 +282,7 @@ fn requested_moves(args: &[String], maximum: u8) -> Result<u8, String> {
 fn run_score_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     validate_options(
         args,
-        &[
-            "--moves",
-            "--out",
-            "--from-score-book",
-            "--threads",
-        ],
+        &["--moves", "--out", "--from-score-book", "--threads"],
     )?;
     let moves = requested_moves(args, MAX_SCORE_BOOK_PLY)?;
     let out = required_arg(args, "--out")?;
