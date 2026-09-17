@@ -248,18 +248,18 @@ impl Solver {
     }
 
     /// Instant hint preview in one call: search-free column scores, the
-    /// (uncertified) move-book suggestion, and the certified column if the
-    /// suggestion carries an exact score (immediate win or score-book value).
-    /// No search, stats unchanged. The UI shows an uncertified suggestion as
-    /// `?` and a certified one with its exact rank while `analyze` scores
-    /// every column in the background.
+    /// (uncertified) move-book suggestion, and a certified column when one
+    /// is already known without search. An immediate winning drop is proved
+    /// even without a book; a move-book suggestion is proved only when its
+    /// score is known. No search, stats unchanged.
     pub fn hint_preview(&self, pos: &Position) -> ([i32; WIDTH], Option<usize>, Option<usize>) {
         let mut scores = self.known_column_scores(pos);
-        let mut proven = None;
-        if let Some((col, score)) = self.certified_book_score(pos) {
+        let proven = if let Some((col, score)) = self.certified_book_score(pos) {
             scores[col] = score;
-            proven = Some(col);
-        }
+            Some(col)
+        } else {
+            (0..WIDTH).find(|&c| pos.is_winning_move(c))
+        };
         (scores, self.book_col(pos), proven)
     }
 
@@ -1250,6 +1250,44 @@ mod tests {
 
         solver.clear_move_book();
         assert_eq!(solver.hint_preview(&pos).1, None);
+    }
+
+    #[test]
+    fn hint_preview_proves_an_immediate_win_without_a_move_book() {
+        let pos = position("7774441327613567");
+        assert!(pos.is_winning_move(4));
+        let mut solver = Solver::with_tt_log(16);
+        solver.max_nodes = 1;
+        let _ = solver.analyze(analysis_timeout_pos());
+        assert!(solver.timed_out());
+        let nodes = solver.node_count();
+        let timed_out = solver.timed_out();
+        let hit = solver.move_book_hit();
+        let last = solver.last_move_scores;
+
+        let (scores, book, proven) = solver.hint_preview(&pos);
+        assert_eq!(book, None);
+        assert_eq!(proven, Some(4));
+        assert_eq!(scores[4], 13);
+        assert_eq!(solver.node_count(), nodes);
+        assert_eq!(solver.timed_out(), timed_out);
+        assert_eq!(solver.move_book_hit(), hit);
+        assert_eq!(solver.last_move_scores, last);
+    }
+
+    #[test]
+    fn analyze_keeps_an_immediate_win_when_it_times_out() {
+        let pos = position("7774441327613567");
+        let mut solver = Solver::with_tt_log(16);
+        solver.max_nodes = 1;
+        let scores = solver.analyze(pos);
+        assert!(solver.timed_out());
+        assert_eq!(scores[4], 13);
+        for (col, &score) in scores.iter().enumerate() {
+            if col != 4 {
+                assert_eq!(score, INVALID_MOVE, "column {col}");
+            }
+        }
     }
 
     #[test]

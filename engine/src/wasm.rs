@@ -82,9 +82,10 @@ impl WasmEngine {
 
     /// Instant hint preview in one call: seven search-free column scores
     /// (`INVALID_MOVE` where unknown), the move-book suggestion, and the
-    /// certified column (`NO_COLUMN` where absent). A certified suggestion
-    /// already carries its exact rank; an uncertified one shows as `?` until
-    /// analysis scores it. Read-only: no search, stats unchanged.
+    /// certified column (`NO_COLUMN` where absent). An immediate winning
+    /// drop is proved even without a book; a move-book suggestion is
+    /// proved only when its score is known. Read-only: no search, stats
+    /// unchanged.
     #[wasm_bindgen(js_name = previewScores)]
     pub fn preview_scores(&self, moves: &[u8]) -> Vec<i16> {
         let mut p = Position::new();

@@ -312,6 +312,22 @@ test("analysis scores every column past a bare move-book hit", async ({ page }) 
   await expect(page.locator("#engine-line")).not.toContainText(/Timed out/i);
 });
 
+test("an immediate win is certified in the preview without a move-book hit", async ({ page }) => {
+  await openHoldingAnalyze(page, "7774441327613567");
+  // Tactical mate: exact rank and proven status with no search and no book.
+  await expect(page.locator("#scores span")).toHaveText(["…", "…", "…", "…", "W13", "…", "…"]);
+  await expect(page.locator('#board [data-col="4"]')).toHaveClass(/best-col/);
+  await expect(page.locator("#status")).toContainText("win");
+  await expect(page.locator("#engine-line")).toHaveText(/analyzing/i);
+  await releaseAnalyze(page);
+  await expect(page.locator("#scores span")).toHaveText(["D", "W10", "W10", "W12", "W13", "W12", "D"]);
+  await expect(page.locator("#scores span", { hasText: "?" })).toHaveCount(0);
+  await expect(page.locator('#board [data-col="4"]')).toHaveClass(/best-col/);
+  await expect(page.locator("#status")).toContainText("win");
+  await expect(page.locator("#engine-line")).not.toHaveText(/analyzing/i);
+  await expect(page.locator("#engine-line")).not.toContainText(/Timed out/i);
+});
+
 test("a late score-book reply cannot restore hints after switching them off", async ({ page }) => {
   await openApp(page);
   await setRole(page, 0, "perfect");
