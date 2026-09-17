@@ -164,6 +164,11 @@ assert(statusText([], emptyScores, false, false) === "Red to move · win", "comp
 assert(statusText([], bookFrontier, false, false, 5) === "Red to move · win", "a certified book column reports a proven win");
 assert(statusText([], emptyScores, false, true) === "Red to move", "timedOut completed-looking scores stay unproven");
 assert(statusText([], timeoutPartial, false, true, 3) === "Red to move · win", "a certified preview outcome survives the background timeout");
+const immediateWinMoves = "7774441327613567".split("").map((ch) => Number(ch) - 1);
+const immediateWinPreview = [INVALID, INVALID, INVALID, INVALID, 13, INVALID, INVALID];
+const immediateWinHeights = playMoves(immediateWinMoves).height;
+same(provenBestColumns(immediateWinPreview, immediateWinHeights, true, 4), [4], "an immediate-win proof survives timeout");
+assert(statusText(immediateWinMoves, immediateWinPreview, false, true, 4) === "Red to move · win", "an immediate-win preview outcome survives timeout");
 assert(statusText([], [-1, -1, -1, -1, -1, -1, -1], false, false) === "Red to move · loss", "proven loss");
 assert(statusText([], [0, 0, 0, 0, 0, 0, 0], false, false) === "Red to move · draw", "proven draw");
 assert(formatScore(INVALID) === "", "unfinished columns stay blank");

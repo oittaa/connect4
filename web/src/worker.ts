@@ -81,7 +81,7 @@ self.onmessage = async (ev: MessageEvent<WorkerReq>) => {
       case "availableScores": {
         // Read-only hints for active computers, including JS-only Easy moves:
         // one preview call holds the search-free scores, the move-book
-        // suggestion, and the certified column if the suggestion is exact.
+        // suggestion, and a certified column (immediate win or scored book hit).
         const preview = Array.from(engine.previewScores(u8(msg.moves)));
         reply({
           id: msg.id,

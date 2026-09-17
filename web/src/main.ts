@@ -475,8 +475,8 @@ function toLegalCol(c: number | undefined): number | undefined {
   return c !== undefined && c >= 0 && c < WIDTH ? c : undefined;
 }
 
-/** Store a search-free preview: known scores, the book suggestion, and its
- * proof if the suggestion is already exact. */
+/** Store a search-free preview: known scores, the book suggestion, and a
+ * proof if an immediate win or scored book hit is already exact. */
 function applyAnalysisPreview(scores: number[], moveBookCol: number, provenCol: number): void {
   analysis = { scores, timedOut: false, bookCol: toLegalCol(moveBookCol), provenCol: toLegalCol(provenCol) };
 }
