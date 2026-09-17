@@ -12,7 +12,6 @@
 
 use crate::position::{MAX_SCORE, MIN_SCORE};
 
-pub const FLAG_EMPTY: u8 = 0;
 pub const FLAG_UPPER: u8 = 1;
 pub const FLAG_LOWER: u8 = 2;
 
@@ -208,6 +207,8 @@ impl Default for Table {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const FLAG_EMPTY: u8 = 0;
 
     #[test]
     fn put_get() {

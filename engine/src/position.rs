@@ -117,13 +117,6 @@ impl Position {
         Self::canonical_from_key(self.key())
     }
 
-    /// True when this board is the right-left image of the stored canonical key.
-    /// Column scores stored under that key must be reversed for this position.
-    #[inline]
-    pub fn is_mirrored(&self) -> bool {
-        self.key() != self.canonical_key()
-    }
-
     /// Return the left-right reflection of this position.
     pub fn mirrored(&self) -> Self {
         Self {
@@ -421,7 +414,8 @@ mod tests {
         let mut r = Position::new();
         r.play_seq("76");
         assert_eq!(l.canonical_key(), r.canonical_key());
-        assert_ne!(l.is_mirrored(), r.is_mirrored());
+        assert_ne!(l.key(), r.key());
+        assert_eq!(l.mirrored().key(), r.key());
         assert_eq!(Position::new().canonical_key(), Position::new().key());
     }
 

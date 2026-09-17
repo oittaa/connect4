@@ -30,7 +30,7 @@ import {
 } from "./game";
 import { isDebugMode, readMovesFromLocation, writeMovesToLocation } from "./url";
 import { createEngineClient, isWorkerReplaced, type EngineRequest } from "./engineClient";
-import { NO_COLUMN, type WorkerRes } from "./engineProtocol";
+import { type WorkerRes } from "./engineProtocol";
 import { restoreRetainedBooks, shouldStartBookDownload } from "./bookRestore";
 import { fetchBookWithDeadline, isAbortError } from "./bookDownload";
 import { createWorkerReplace } from "./workerReplace";
