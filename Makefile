@@ -1,4 +1,4 @@
-.PHONY: test wasm web all empty-book
+.PHONY: test wasm web all
 
 test:
 	cargo test -p engine
@@ -10,7 +10,3 @@ web: wasm
 	cd web && npm install && npm run build
 
 all: test web
-
-empty-book:
-	cargo run --release -p engine -- empty --write-book web/public/books/opening.c4book
-	cp -f web/public/books/opening.c4book books/opening.c4book
