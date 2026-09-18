@@ -108,7 +108,7 @@ For optimal speed, compile with Profile-Guided Optimization (`-pgo`) and strippe
 go run ./gosolver/main.go -cpuprofile cpu.pprof 4444
 
 # 2. Build with PGO
-go build -pgo cpu.pprof -ldflags="-s -w" -o gosolver ./gosolver/main.go
+go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go
 ```
 
 ## Cursor Cloud

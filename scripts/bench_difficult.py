@@ -50,7 +50,11 @@ def find_solver_bin(override_path: Optional[str] = None) -> str:
         os.path.join("target", "release", "c4solver"),
         os.path.join("..", "target", "release", "c4solver.exe"),
         os.path.join("..", "target", "release", "c4solver"),
+        os.path.join("c4solver-go.exe"),
+        os.path.join("c4solver-go"),
         os.path.join("gosolver.exe"),
+        os.path.join("gosolver", "c4solver-go.exe"),
+        os.path.join("gosolver", "c4solver-go"),
         os.path.join("gosolver", "main.go"),
     ]
     for c in candidates:
@@ -63,7 +67,7 @@ def find_solver_bin(override_path: Optional[str] = None) -> str:
 
 def is_go_solver(bin_path: str) -> bool:
     base = os.path.basename(bin_path).lower()
-    return "gosolver" in base or base.endswith(".go")
+    return "c4solver-go" in base or "gosolver" in base or base.endswith(".go")
 
 def run_solver(bin_path: str, moves: str, no_book: bool = True) -> Dict[str, Any]:
     if is_go_solver(bin_path):
