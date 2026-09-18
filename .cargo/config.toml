@@ -1,0 +1,3 @@
+# Host c4solver uses the CPU we compile on; WASM is unchanged.
+[target.'cfg(not(target_arch = "wasm32"))']
+rustflags = ["-C", "target-cpu=native"]
