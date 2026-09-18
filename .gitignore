@@ -27,3 +27,7 @@ web/playwright/.cache/
 /c4solver-go
 /cpu.pprof
 
+# Python
+**/__pycache__/
+*.py[cod]
+
