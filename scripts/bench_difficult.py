@@ -18,7 +18,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import time
 from typing import Dict, List, Optional, Any
 
@@ -52,7 +51,6 @@ def find_solver_bin(override_path: Optional[str] = None) -> str:
         os.path.join("..", "target", "release", "c4solver"),
         os.path.join("c4solver-go.exe"),
         os.path.join("c4solver-go"),
-        os.path.join("gosolver.exe"),
         os.path.join("gosolver", "c4solver-go.exe"),
         os.path.join("gosolver", "c4solver-go"),
         os.path.join("gosolver", "main.go"),
