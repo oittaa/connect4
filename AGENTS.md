@@ -50,17 +50,13 @@ npm run test:browser
 
 If you edited **both** sides, run both checklists. A green `cargo test` does not cover the web client.
 
-If you made **algorithmic or solver changes**:
-
-After every algorithmic change the build needs to be tested against the baseline, and before pushing to git the baseline needs to be updated:
+Score pins stay `cargo test --locked -p engine` and `c4solver bench`. After a search-order change, optionally:
 
 ```sh
-# 1. Test against baseline (must verify correctness and check node count delta)
 python scripts/bench_difficult.py --compare --heavy
-
-# 2. Update baseline before pushing to git
-python scripts/bench_difficult.py --save --heavy
 ```
+
+That fails on score, best-move, or node mismatch. Do not `--save` wall-clock times as a push step. Only rewrite `scripts/testdata/baseline.json` when gold node counts change, and keep the `host` block (CPU, OS, rustc, `target-cpu`, binary) in the same file.
 
 ## Layout
 
@@ -98,18 +94,6 @@ CLI (after `cargo build --release -p engine`):
 ```
 
 `--no-book` disables the embedded 4-ply score book.
-
-### Go solver (`gosolver/`)
-
-For optimal speed, compile with Profile-Guided Optimization (`-pgo`) and stripped symbols (`-ldflags="-s -w"`). PGO raises the compiler's inlining budget and inlines hot functions like `computeWinningPosition`:
-
-```sh
-# 1. Sample CPU profile (run once or after changing solver logic)
-go run ./gosolver/main.go -cpuprofile cpu.pprof 4444
-
-# 2. Build with PGO
-go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go
-```
 
 ## Cursor Cloud
 

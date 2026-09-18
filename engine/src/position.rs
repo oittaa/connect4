@@ -23,7 +23,7 @@ pub const MAX_SCORE: i32 = ((AREA as i32) + 1) / 2 - 3;
 
 /// Count of 4-in-a-row lines passing through each cell.
 /// Indexed by bit index (col * 7 + row) in the 7×7 bitboard.
-pub const CELL_WEIGHT: [i32; 49] = [
+const CELL_WEIGHT: [i32; 49] = [
     3, 4, 5, 5, 4, 3, 0, 4, 6, 8, 8, 6, 4, 0, 5, 8, 11, 11, 8, 5, 0, 7, 10, 13, 13, 10, 7, 0, 5, 8,
     11, 11, 8, 5, 0, 4, 6, 8, 8, 6, 4, 0, 3, 4, 5, 5, 4, 3, 0,
 ];

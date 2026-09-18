@@ -510,10 +510,15 @@ func main() {
 	}
 	if profFile != "" {
 		f, err := os.Create(profFile)
-		if err == nil {
-			pprof.StartCPUProfile(f)
-			defer pprof.StopCPUProfile()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cpuprofile: %v\n", err)
+			os.Exit(1)
 		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			fmt.Fprintf(os.Stderr, "cpuprofile: %v\n", err)
+			os.Exit(1)
+		}
+		defer pprof.StopCPUProfile()
 	}
 
 	var pos Position

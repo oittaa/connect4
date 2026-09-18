@@ -18,7 +18,7 @@ Usage:
   c4solver solve [MOVES] [--no-book]
                                   score a position (1-based column digits)
   c4solver best-move [MOVES] [--no-book]
-                                  find first winning/best move
+                                  first optimal move in center-first column order
   c4solver analyze [MOVES] [--no-book]
                                   score each legal column
   c4solver bench [--score-book FILE] [--limit N] [--no-book] FILE
