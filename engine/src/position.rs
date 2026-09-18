@@ -21,6 +21,13 @@ pub const AREA: usize = WIDTH * HEIGHT;
 pub const MIN_SCORE: i32 = -((AREA as i32) / 2) + 3;
 pub const MAX_SCORE: i32 = ((AREA as i32) + 1) / 2 - 3;
 
+/// Count of 4-in-a-row lines passing through each cell.
+/// Indexed by bit index (col * 7 + row) in the 7×7 bitboard.
+const CELL_WEIGHT: [i32; 49] = [
+    3, 4, 5, 5, 4, 3, 0, 4, 6, 8, 8, 6, 4, 0, 5, 8, 11, 11, 8, 5, 0, 7, 10, 13, 13, 10, 7, 0, 5, 8,
+    11, 11, 8, 5, 0, 4, 6, 8, 8, 6, 4, 0, 3, 4, 5, 5, 4, 3, 0,
+];
+
 const H1: u32 = (HEIGHT + 1) as u32;
 
 const fn bottom_mask() -> u64 {
@@ -283,11 +290,13 @@ impl Position {
         }
         possible & !(opponent_win >> 1)
     }
-
-    /// Number of winning spots after playing `move_bit`.
+    /// Number of winning spots after playing `move_bit`, with static cell weight
+    /// in the lower bits to break ties among moves with equal threat counts.
     #[inline(always)]
     pub fn move_score(&self, move_bit: u64) -> i32 {
-        (compute_winning_position(self.current | move_bit, self.mask)).count_ones() as i32
+        let threats =
+            compute_winning_position(self.current | move_bit, self.mask).count_ones() as i32;
+        (threats << 4) | CELL_WEIGHT[move_bit.trailing_zeros() as usize]
     }
 
     /// Play 1-based column digits (`"444526"`). Stops before an illegal or

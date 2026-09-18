@@ -1,0 +1,102 @@
+{
+  "host": {
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "os": "Linux 6.12.94+ x86_64",
+    "binary": "target/release/c4solver",
+    "engine": "rust",
+    "no_book": true,
+    "taskset": "0",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "target_cpu": "native (emeraldrapids)"
+  },
+  "results": [
+    {
+      "moves": "44444666",
+      "best_move": 6,
+      "score": 1,
+      "nodes": 28590000,
+      "time_sec": 1.593,
+      "knps": 17947.3
+    },
+    {
+      "moves": "54431",
+      "best_move": 4,
+      "score": 0,
+      "nodes": 23704563,
+      "time_sec": 1.217,
+      "knps": 19477.9
+    },
+    {
+      "moves": "43321",
+      "best_move": 4,
+      "score": -2,
+      "nodes": 33153216,
+      "time_sec": 1.823,
+      "knps": 18186.1
+    },
+    {
+      "moves": "4444",
+      "best_move": 4,
+      "score": 1,
+      "nodes": 105725361,
+      "time_sec": 5.451,
+      "knps": 19395.6
+    },
+    {
+      "moves": "44",
+      "best_move": 4,
+      "score": 1,
+      "nodes": 179171950,
+      "time_sec": 9.107,
+      "knps": 19674.1
+    },
+    {
+      "moves": "45",
+      "best_move": 2,
+      "score": 2,
+      "nodes": 216626288,
+      "time_sec": 11.123,
+      "knps": 19475.5
+    },
+    {
+      "moves": "444442222453",
+      "best_move": 5,
+      "score": 1,
+      "nodes": 1514480,
+      "time_sec": 0.123,
+      "knps": 12312.8
+    },
+    {
+      "moves": "763163667377",
+      "best_move": 3,
+      "score": 2,
+      "nodes": 1962968,
+      "time_sec": 0.137,
+      "knps": 14328.2
+    },
+    {
+      "moves": "433214444433",
+      "best_move": 5,
+      "score": 2,
+      "nodes": 1093889,
+      "time_sec": 0.09,
+      "knps": 12154.3
+    },
+    {
+      "moves": "4",
+      "best_move": 4,
+      "score": -1,
+      "nodes": 450261695,
+      "time_sec": 22.539,
+      "knps": 19977.0
+    },
+    {
+      "moves": "",
+      "best_move": 4,
+      "score": 1,
+      "nodes": 721655549,
+      "time_sec": 37.137,
+      "knps": 19432.3
+    }
+  ]
+}

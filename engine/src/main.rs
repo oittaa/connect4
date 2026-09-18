@@ -17,6 +17,8 @@ c4solver — perfect Connect 4
 Usage:
   c4solver solve [MOVES] [--no-book]
                                   score a position (1-based column digits)
+  c4solver best-move [MOVES] [--no-book]
+                                  first optimal move in center-first column order
   c4solver analyze [MOVES] [--no-book]
                                   score each legal column
   c4solver bench [--score-book FILE] [--limit N] [--no-book] FILE
@@ -152,6 +154,36 @@ fn main() {
             if let Some(n) = winning_move_number(r.score) {
                 println!("game ends on move {n} with perfect play");
             }
+        }
+        "best-move" => {
+            let seq = positional_seq(&args);
+            let mut solver = make_solver(&args);
+            let pos = parse_moves(seq);
+            let start = std::time::Instant::now();
+            let Some((col, r, scores)) = solver.best_move(pos) else {
+                eprintln!("no legal moves or game already over");
+                process::exit(1);
+            };
+            let dt = start.elapsed();
+            let secs = dt.as_secs_f64();
+            let kns = if secs > 0.0 {
+                r.nodes as f64 / (secs * 1000.0)
+            } else {
+                0.0
+            };
+            println!("best_move: {}", col + 1);
+            println!("score: {}", r.score);
+            println!("nodes: {}", r.nodes);
+            println!("time: {:.3}s ({:.1} kn/s)", secs, kns);
+            print!("columns:");
+            for (i, s) in scores.iter().enumerate() {
+                if *s == INVALID_MOVE {
+                    print!("  {}:—", i + 1);
+                } else {
+                    print!("  {}:{s}", i + 1);
+                }
+            }
+            println!();
         }
         "analyze" => {
             let seq = positional_seq(&args);
@@ -415,7 +447,7 @@ fn run_move_book(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 fn validate_args(args: &[String]) -> Result<(), String> {
     let cmd = args[0].as_str();
     let allowed: &[&str] = match cmd {
-        "solve" | "analyze" => &["--no-book"],
+        "solve" | "best-move" | "analyze" => &["--no-book"],
         "empty" => &["--score-book", "--write-score-book", "--no-book"],
         "bench" => &["--score-book", "--limit", "--no-book"],
         "gen-score-book" => &["--moves", "--out", "--from-score-book", "--threads"],

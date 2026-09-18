@@ -50,14 +50,25 @@ npm run test:browser
 
 If you edited **both** sides, run both checklists. A green `cargo test` does not cover the web client.
 
+Score pins stay `cargo test --locked -p engine` and `c4solver bench`. After a search-order change, optionally:
+
+```sh
+python scripts/bench_difficult.py --compare --heavy
+```
+
+That fails on score, best-move, or node mismatch. Do not `--save` wall-clock times as a push step. Only rewrite `scripts/testdata/baseline.json` when gold node counts change, and keep the `host` block (CPU, OS, rustc, `target-cpu`, binary) in the same file. Partial `--save` keeps unmeasured rows only when that host/configuration matches; otherwise re-run every position already in the file.
+
 ## Layout
 
 | Path | What |
 |---|---|
 | `engine/` | Solver, TT, books, `c4solver` CLI |
 | `web/` | Vite UI, worker, unit tests (`src/*-test.ts`), e2e (`e2e/*.spec.ts`) |
+| `gosolver/` | Standalone Go port of the Connect 4 solver |
 | `books/` | Score/move books |
 | `testdata/` | Pons `sequence score` files |
+| `scripts/bench_difficult.py` | Benchmark runner and baseline comparison |
+| `scripts/testdata/` | Benchmark baselines (`baseline.json`) |
 | `scripts/build-wasm.sh` | `wasm32` release build + `wasm-bindgen` → `web/src/pkg` |
 
 `web/src/pkg/` is generated and gitignored. Never commit it, `web/dist/`, `web/node_modules/`, `target/`, or `books/*.checkpoint`.
@@ -68,6 +79,7 @@ If you edited **both** sides, run both checklists. A green `cargo test` does not
 - Packed WASM `previewScores` is 9×`i16` (7 column scores + `bookCol` + `provenCol`). Change both Rust and TS.
 - Native TT is the 24-bit prime `16_777_259`; WASM is the 22-bit prime `4_194_319` (`TT_SIZE` in `engine/src/tt.rs`). Size is a compile-time constant on purpose (const reciprocal, not `divq` / dynamic `i64.rem_u`).
 - Solver scores are exact game-theoretic values. Tests pin them. Faster search is fine; different scores are a bug.
+- Never remove, skip, or "clean up" documented performance compile steps (Go PGO, `target-cpu=native`, etc.) without measured wall-clock on this machine. Agents do not get to decide those are slop.
 
 ## Local run
 
@@ -83,6 +95,16 @@ CLI (after `cargo build --release -p engine`):
 ```
 
 `--no-book` disables the embedded 4-ply score book.
+
+### Go solver (`gosolver/`)
+
+Build with PGO (inlines hot functions like `computeWinningPosition`):
+
+```sh
+make gosolver
+```
+
+That profiles `44444666`, then `go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go`.
 
 ## Cursor Cloud
 
