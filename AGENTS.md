@@ -98,15 +98,13 @@ CLI (after `cargo build --release -p engine`):
 
 ### Go solver (`gosolver/`)
 
-For optimal speed, compile with Profile-Guided Optimization (`-pgo`) and stripped symbols (`-ldflags="-s -w"`). PGO raises the compiler's inlining budget and inlines hot functions like `computeWinningPosition`:
+Build with PGO (inlines hot functions like `computeWinningPosition`):
 
 ```sh
-# 1. Sample CPU profile (run once or after changing solver logic)
-go run ./gosolver/main.go -cpuprofile cpu.pprof 4444
-
-# 2. Build with PGO
-go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go
+make gosolver
 ```
+
+That profiles `4444`, then `go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go`.
 
 ## Cursor Cloud
 

@@ -22,3 +22,8 @@ web/playwright/.cache/
 *.swp
 *~
 .idea/
+
+# Go solver PGO build
+/c4solver-go
+/cpu.pprof
+
