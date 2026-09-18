@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/bits"
 	"os"
+	"runtime/pprof"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -163,8 +165,21 @@ func (p *Position) possibleNonLosingMoves() uint64 {
 	return possible &^ (opponentWin >> 1)
 }
 
+// Count of 4-in-a-row lines passing through each cell.
+// Indexed by bit index (col * 7 + row) in the 7×7 bitboard.
+var cellWeight = [49]int{
+	3, 4, 5, 5, 4, 3, 0,
+	4, 6, 8, 8, 6, 4, 0,
+	5, 8, 11, 11, 8, 5, 0,
+	7, 10, 13, 13, 10, 7, 0,
+	5, 8, 11, 11, 8, 5, 0,
+	4, 6, 8, 8, 6, 4, 0,
+	3, 4, 5, 5, 4, 3, 0,
+}
+
 func (p *Position) moveScore(moveBit uint64) int {
-	return bits.OnesCount64(computeWinningPosition(p.current|moveBit, p.mask))
+	threats := bits.OnesCount64(computeWinningPosition(p.current|moveBit, p.mask))
+	return (threats << 4) | cellWeight[bits.TrailingZeros64(moveBit)]
 }
 
 func (p *Position) playSeq(seq string) int {
@@ -473,9 +488,32 @@ func (s *Solver) BestMove(pos Position) (int, int) {
 }
 
 func main() {
-	seq := ""
-	if len(os.Args) > 1 {
-		seq = os.Args[1]
+	var profFile, seq string
+
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		switch {
+		case arg == "-cpuprofile" || arg == "--cpuprofile":
+			if i+1 < len(os.Args) {
+				i++
+				profFile = os.Args[i]
+			}
+		case arg == "best-move" || strings.HasPrefix(arg, "-"):
+			continue
+		case seq == "":
+			seq = arg
+		}
+	}
+
+	if profFile == "" {
+		profFile = os.Getenv("CPUPROFILE")
+	}
+	if profFile != "" {
+		f, err := os.Create(profFile)
+		if err == nil {
+			pprof.StartCPUProfile(f)
+			defer pprof.StopCPUProfile()
+		}
 	}
 
 	var pos Position

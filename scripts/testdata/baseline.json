@@ -1,0 +1,74 @@
+[
+  {
+    "moves": "44444666",
+    "best_move": 6,
+    "score": 1,
+    "nodes": 28590000,
+    "time_sec": 1.306,
+    "wall_sec": 1.32,
+    "knps": 21891.3
+  },
+  {
+    "moves": "54431",
+    "best_move": 4,
+    "score": 0,
+    "nodes": 23704563,
+    "time_sec": 1.087,
+    "wall_sec": 1.098,
+    "knps": 21807.3
+  },
+  {
+    "moves": "43321",
+    "best_move": 4,
+    "score": -2,
+    "nodes": 33153216,
+    "time_sec": 1.541,
+    "wall_sec": 1.552,
+    "knps": 21514.1
+  },
+  {
+    "moves": "4444",
+    "best_move": 4,
+    "score": 1,
+    "nodes": 105725361,
+    "time_sec": 4.645,
+    "wall_sec": 4.658,
+    "knps": 22761.1
+  },
+  {
+    "moves": "44",
+    "best_move": 4,
+    "score": 1,
+    "nodes": 179171950,
+    "time_sec": 8.307,
+    "wall_sec": 8.319,
+    "knps": 21568.8
+  },
+  {
+    "moves": "45",
+    "best_move": 2,
+    "score": 2,
+    "nodes": 216626288,
+    "time_sec": 10.581,
+    "wall_sec": 10.595,
+    "knps": 20473.1
+  },
+  {
+    "moves": "4",
+    "best_move": 4,
+    "score": -1,
+    "nodes": 450261695,
+    "time_sec": 20.237,
+    "wall_sec": 20.25,
+    "knps": 22249.4
+  },
+  {
+    "moves": "",
+    "best_move": 4,
+    "score": 1,
+    "nodes": 721655549,
+    "time_sec": 31.948,
+    "wall_sec": 31.96,
+    "knps": 22588.4
+  }
+]

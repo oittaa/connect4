@@ -50,14 +50,29 @@ npm run test:browser
 
 If you edited **both** sides, run both checklists. A green `cargo test` does not cover the web client.
 
+If you made **algorithmic or solver changes**:
+
+After every algorithmic change the build needs to be tested against the baseline, and before pushing to git the baseline needs to be updated:
+
+```sh
+# 1. Test against baseline (must verify correctness and check node count delta)
+python scripts/bench_difficult.py --compare --heavy
+
+# 2. Update baseline before pushing to git
+python scripts/bench_difficult.py --save --heavy
+```
+
 ## Layout
 
 | Path | What |
 |---|---|
 | `engine/` | Solver, TT, books, `c4solver` CLI |
 | `web/` | Vite UI, worker, unit tests (`src/*-test.ts`), e2e (`e2e/*.spec.ts`) |
+| `gosolver/` | Standalone Go port of the Connect 4 solver |
 | `books/` | Score/move books |
 | `testdata/` | Pons `sequence score` files |
+| `scripts/bench_difficult.py` | Benchmark runner and baseline comparison |
+| `scripts/testdata/` | Benchmark baselines (`baseline.json`) |
 | `scripts/build-wasm.sh` | `wasm32` release build + `wasm-bindgen` → `web/src/pkg` |
 
 `web/src/pkg/` is generated and gitignored. Never commit it, `web/dist/`, `web/node_modules/`, `target/`, or `books/*.checkpoint`.
@@ -83,6 +98,18 @@ CLI (after `cargo build --release -p engine`):
 ```
 
 `--no-book` disables the embedded 4-ply score book.
+
+### Go solver (`gosolver/`)
+
+For optimal speed, compile with Profile-Guided Optimization (`-pgo`) and stripped symbols (`-ldflags="-s -w"`). PGO raises the compiler's inlining budget and inlines hot functions like `computeWinningPosition`:
+
+```sh
+# 1. Sample CPU profile (run once or after changing solver logic)
+go run ./gosolver/main.go -cpuprofile cpu.pprof 4444
+
+# 2. Build with PGO
+go build -pgo cpu.pprof -ldflags="-s -w" -o gosolver ./gosolver/main.go
+```
 
 ## Cursor Cloud
 
