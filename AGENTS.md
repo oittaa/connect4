@@ -79,6 +79,7 @@ That fails on score, best-move, or node mismatch. Do not `--save` wall-clock tim
 - Packed WASM `previewScores` is 9×`i16` (7 column scores + `bookCol` + `provenCol`). Change both Rust and TS.
 - Native TT is the 24-bit prime `16_777_259`; WASM is the 22-bit prime `4_194_319` (`TT_SIZE` in `engine/src/tt.rs`). Size is a compile-time constant on purpose (const reciprocal, not `divq` / dynamic `i64.rem_u`).
 - Solver scores are exact game-theoretic values. Tests pin them. Faster search is fine; different scores are a bug.
+- Never remove, skip, or "clean up" documented performance compile steps (Go PGO, `target-cpu=native`, etc.) without measured wall-clock on this machine. Agents do not get to decide those are slop.
 
 ## Local run
 
@@ -94,6 +95,18 @@ CLI (after `cargo build --release -p engine`):
 ```
 
 `--no-book` disables the embedded 4-ply score book.
+
+### Go solver (`gosolver/`)
+
+For optimal speed, compile with Profile-Guided Optimization (`-pgo`) and stripped symbols (`-ldflags="-s -w"`). PGO raises the compiler's inlining budget and inlines hot functions like `computeWinningPosition`:
+
+```sh
+# 1. Sample CPU profile (run once or after changing solver logic)
+go run ./gosolver/main.go -cpuprofile cpu.pprof 4444
+
+# 2. Build with PGO
+go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go
+```
 
 ## Cursor Cloud
 
