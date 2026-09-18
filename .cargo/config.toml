@@ -1,5 +1,3 @@
-# Native CLI only. WASM (wasm32-unknown-unknown) does not match this cfg, so
-# ./scripts/build-wasm.sh and wasm32 clippy stay portable. We do not ship
-# c4solver; target-cpu=native is for local/CI x86_64 hosts.
-[target.'cfg(target_arch = "x86_64")']
+# Host c4solver uses the CPU we compile on; WASM is unchanged.
+[target.'cfg(not(target_arch = "wasm32"))']
 rustflags = ["-C", "target-cpu=native"]
