@@ -104,7 +104,7 @@ Build with PGO (inlines hot functions like `computeWinningPosition`):
 make gosolver
 ```
 
-That profiles `4444`, then `go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go`.
+That profiles `44444666`, then `go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go`.
 
 ## Cursor Cloud
 

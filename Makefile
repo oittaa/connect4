@@ -12,5 +12,5 @@ web: wasm
 all: test web
 
 gosolver:
-	go run ./gosolver/main.go -cpuprofile cpu.pprof 4444
+	go run ./gosolver/main.go -cpuprofile cpu.pprof 44444666
 	go build -pgo cpu.pprof -ldflags="-s -w" -o c4solver-go ./gosolver/main.go
