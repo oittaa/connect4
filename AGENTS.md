@@ -56,7 +56,7 @@ Score pins stay `cargo test --locked -p engine` and `c4solver bench`. After a se
 python scripts/bench_difficult.py --compare --heavy
 ```
 
-That fails on score, best-move, or node mismatch. Do not `--save` wall-clock times as a push step. Only rewrite `scripts/testdata/baseline.json` when gold node counts change, and keep the `host` block (CPU, OS, rustc, `target-cpu`, binary) in the same file.
+That fails on score, best-move, or node mismatch. Do not `--save` wall-clock times as a push step. Only rewrite `scripts/testdata/baseline.json` when gold node counts change, and keep the `host` block (CPU, OS, rustc, `target-cpu`, binary) in the same file. Partial `--save` keeps unmeasured rows only when that host/configuration matches; otherwise re-run every position already in the file.
 
 ## Layout
 

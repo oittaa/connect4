@@ -8,6 +8,10 @@ Default --compare/--save file: scripts/testdata/baseline.json (Rust, --no-book).
 A 1-7 move string after --compare/--save is a position, not a file.
 --save to that path requires the Rust binary and refuses --with-book.
 --save merges by position, so a non-heavy run does not drop empty/"4".
+If host/configuration differs from the file (CPU, OS, binary, engine, book
+mode, taskset, rustc, target-cpu), a partial merge is refused so unmeasured
+rows cannot keep old timings under a new host label. Re-run every position
+already in the file, or save to a new file.
 --compare exits 1 if score, best-move, or node count differs. Times are printed only.
 """
 
@@ -27,7 +31,21 @@ DEFAULT_BASELINE = Path(__file__).resolve().parent / "testdata" / "baseline.json
 DEFAULT_BIN = REPO_ROOT / "target" / "release" / "c4solver"
 
 DEFAULT_POSITIONS = ["44444666", "54431", "43321", "4444", "44", "45"]
+# 12-ply book misses; cheap node-count canaries for post-book search order.
+POST_BOOK_POSITIONS = ["444442222453", "763163667377", "433214444433"]
 HEAVY_POSITIONS = ["4", ""]
+STANDARD_ORDER = DEFAULT_POSITIONS + POST_BOOK_POSITIONS + HEAVY_POSITIONS
+
+HOST_IDENTITY_KEYS = (
+    "cpu",
+    "os",
+    "binary",
+    "engine",
+    "no_book",
+    "taskset",
+    "rustc",
+    "target_cpu",
+)
 
 BEST_MOVE_RE = re.compile(r"^best_move:\s*(\d+)\s*$", re.M)
 SCORE_RE = re.compile(r"^score:\s*(-?\d+)\s*$", re.M)
@@ -131,6 +149,39 @@ def rel_bin(path: Path) -> str:
         return str(path)
 
 
+def host_identity(host: dict | None) -> tuple:
+    h = host or {}
+    return tuple(h.get(k) for k in HOST_IDENTITY_KEYS)
+
+
+def format_host(host: dict | None) -> str:
+    h = host or {}
+    parts = [f"{k}={h[k]}" for k in HOST_IDENTITY_KEYS if h.get(k) is not None]
+    return ", ".join(parts) if parts else "(none)"
+
+
+def merge_save(save_path: Path, results: list[dict], current_host: dict) -> tuple[dict, int]:
+    """Merge measured rows into an existing baseline, or raise on a mixed-host partial save."""
+    previous = load_baseline(save_path) if save_path.is_file() else {"host": {}, "results": []}
+    prev_results = previous.get("results", [])
+    measured = {row["moves"] for row in results}
+    kept_rows = [row for row in prev_results if row["moves"] not in measured]
+    prev_host = previous.get("host") or {}
+    if kept_rows and host_identity(prev_host) != host_identity(current_host):
+        labels = ", ".join(repr(row["moves"] or "") for row in kept_rows)
+        raise ValueError(
+            "refusing partial --save: host/configuration changed; "
+            f"{len(kept_rows)} unmeasured position(s) would keep old timings under the new host "
+            f"({labels}). Re-run every position already in the file, or save to a new file.\n"
+            f"  previous: {format_host(prev_host)}\n"
+            f"  current:  {format_host(current_host)}"
+        )
+    return {
+        "host": current_host,
+        "results": ordered_results(results, prev_results),
+    }, len(kept_rows)
+
+
 def host_info(bin_path: Path, engine: str, no_book: bool, pinned_cpu: str | None) -> dict:
     info = {
         "cpu": cpu_model(),
@@ -217,7 +268,7 @@ def ordered_results(updated: list[dict], previous: list[dict]) -> list[dict]:
         by_moves[row["moves"]] = row
     ordered = []
     seen: set[str] = set()
-    for moves in DEFAULT_POSITIONS + HEAVY_POSITIONS:
+    for moves in STANDARD_ORDER:
         if moves in by_moves:
             ordered.append(by_moves[moves])
             seen.add(moves)
@@ -234,7 +285,7 @@ def ordered_results(updated: list[dict], previous: list[dict]) -> list[dict]:
 def print_table(results: list[dict], baseline: dict | None) -> None:
     base_rows = {row["moves"]: row for row in baseline["results"]} if baseline else {}
     headers = (
-        f"{'pos':<10} {'move':<6} {'score':<6} {'nodes':<12} "
+        f"{'pos':<14} {'move':<6} {'score':<6} {'nodes':<12} "
         f"{'base_mv':<7} {'base_sc':<7} {'base_nodes':<12} {'nodes%':<8} {'s':<8} {'base_s':<8}"
     )
     print(headers)
@@ -252,7 +303,7 @@ def print_table(results: list[dict], baseline: dict | None) -> None:
         else:
             base_mv = base_sc = base_nodes = pct = base_t = "-"
         print(
-            f"{pos:<10} {row['best_move']:<6} {row['score']:+d}    {row['nodes']:<12,} "
+            f"{pos:<14} {row['best_move']:<6} {row['score']:+d}    {row['nodes']:<12,} "
             f"{base_mv:<7} {base_sc:<7} {base_nodes:<12} {pct:<8} {row['time_sec']:<8.3f} {base_t:<8}"
         )
 
@@ -335,7 +386,7 @@ def main() -> int:
     if extras or args.positions:
         positions = extras + list(args.positions)
     else:
-        positions = list(DEFAULT_POSITIONS)
+        positions = list(DEFAULT_POSITIONS) + list(POST_BOOK_POSITIONS)
         if args.heavy:
             positions.extend(HEAVY_POSITIONS)
 
@@ -372,16 +423,11 @@ def main() -> int:
     sys.stdout.flush()
 
     if save_path is not None:
-        previous = load_baseline(save_path) if save_path.is_file() else {"host": {}, "results": []}
-        kept = sum(
-            1
-            for row in previous.get("results", [])
-            if row["moves"] not in {r["moves"] for r in results}
+        doc, kept = merge_save(
+            save_path,
+            results,
+            host_info(bin_path, engine, no_book, pinned),
         )
-        doc = {
-            "host": host_info(bin_path, engine, no_book, pinned),
-            "results": ordered_results(results, previous.get("results", [])),
-        }
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         extra = f" (kept {kept} positions not in this run)" if kept else ""
