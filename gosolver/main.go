@@ -488,10 +488,9 @@ func (s *Solver) BestMove(pos Position) (int, int) {
 	return bestCol, target
 }
 
-// runBench scores each position in a Pons file (sequence score). One solver
-// serves the whole file, so the transposition table stays warm. Nodes and
-// time are per position. A line that is only a score is the empty board.
-// There is no opening book.
+// runBench scores each position (sequence score). One solver serves the whole
+// file, so the transposition table stays warm. Nodes and time are per position.
+// A line that is only a score is the empty board. There is no opening book.
 func runBench(path string) int {
 	f, err := os.Open(path)
 	if err != nil {

@@ -94,7 +94,6 @@ fn limit_counts_only_real_lines() {
     assert_eq!(score_line(&lines[0]), ("4".to_string(), -1, 0));
     assert_eq!(score_line(&lines[1]), ("44".to_string(), 1, 0));
 
-    // A real line that cannot be played still consumes the limit.
     let blocked = workspace.write(
         "blocked.txt",
         "\
@@ -115,12 +114,6 @@ fn limit_counts_only_real_lines() {
 #[test]
 fn last_move_win_is_scored_like_go() {
     let workspace = Workspace::new();
-    // 1212121: vertical win on the last move; the side to move also threatens,
-    // so the score is the immediate-win value 18 at 0 nodes.
-    // 21314161: even-length win. Playing the drop (as Go does) scores 17.
-    // Stopping before it would score 18.
-    // 1223533464474: diagonal win whose continuation is not an immediate win,
-    // so the score comes from search (-4), not the pre-win formula (15).
     let path = workspace.write(
         "wins.txt",
         "\
@@ -170,7 +163,6 @@ fn extra_fields_and_malformed_lines_are_rejected() {
     let err = String::from_utf8_lossy(&output.stderr);
     assert!(err.contains("expected a score"), "{err}");
 
-    // A later corrupt line still fails the file; the earlier score is printed.
     let mixed = workspace.write(
         "mixed.txt",
         "\

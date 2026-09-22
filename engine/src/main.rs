@@ -488,10 +488,8 @@ fn validate_args(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Play a bench sequence the way `c4solver-go bench` does.
-///
-/// A winning drop is played and consumed, so a win on the final character is
-/// a legal line. `Position::play_seq` still stops before that drop.
+/// Play 1-based column digits. A winning or unplayable drop is played and
+/// consumed. Returns how many characters were consumed.
 fn play_bench_seq(pos: &mut Position, seq: &str) -> usize {
     for (i, ch) in seq.chars().enumerate() {
         let col = match ch.to_digit(10) {
