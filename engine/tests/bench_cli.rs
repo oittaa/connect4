@@ -112,7 +112,7 @@ fn limit_counts_only_real_lines() {
 }
 
 #[test]
-fn last_move_win_is_scored_like_go() {
+fn last_move_win_is_scored() {
     let workspace = Workspace::new();
     let path = workspace.write(
         "wins.txt",
