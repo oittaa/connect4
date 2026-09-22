@@ -1,7 +1,7 @@
 use engine::book_io::write_atomic;
 use engine::move_book::{MoveBook, MAX_MOVE_BOOK_PLY};
 use engine::move_book_gen::{generate, GenerateOptions};
-use engine::position::Position;
+use engine::position::{Position, WIDTH};
 use engine::score_book::{ScoreBook, MAX_SCORE_BOOK_PLY};
 use engine::score_to_move::{convert_score_to_move, validate_against_score_book};
 use engine::solver::{winning_move_number, Solver, INVALID_MOVE};
@@ -488,6 +488,23 @@ fn validate_args(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Play 1-based column digits. A winning or unplayable drop is played and
+/// consumed. Returns how many characters were consumed.
+fn play_bench_seq(pos: &mut Position, seq: &str) -> usize {
+    for (i, ch) in seq.chars().enumerate() {
+        let col = match ch.to_digit(10) {
+            Some(d) if (1..=WIDTH as u32).contains(&d) => (d - 1) as usize,
+            _ => return i,
+        };
+        if !pos.can_play(col) || pos.is_winning_move(col) {
+            pos.play_col(col);
+            return i + 1;
+        }
+        pos.play_col(col);
+    }
+    seq.len()
+}
+
 fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
     let f = fs::File::open(path).unwrap_or_else(|e| {
         eprintln!("cannot open {}: {e}", path.display());
@@ -496,21 +513,36 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
     let mut ok = 0usize;
     let mut fail = 0usize;
     let mut total_nodes = 0u64;
+    let mut seen = 0usize;
     let start = std::time::Instant::now();
     for (n, line) in io::BufReader::new(f).lines().enumerate() {
-        if n >= limit {
-            break;
-        }
         let line = line.unwrap();
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
+        if seen >= limit {
+            break;
+        }
+        seen += 1;
         let mut parts = line.split_whitespace();
-        let seq = parts.next().unwrap();
-        let expect: i32 = parts.next().unwrap().parse().unwrap();
+        let first = parts.next().unwrap();
+        let second = parts.next();
+        if second.is_some() && parts.next().is_some() {
+            eprintln!("line {}: expected sequence score, got {line:?}", n + 1);
+            process::exit(1);
+        }
+        // A lone score is the empty board. Every other line is `sequence score`.
+        let (seq, expect_tok) = match second {
+            Some(score) => (first, score),
+            None => ("", first),
+        };
+        let expect: i32 = expect_tok.parse().unwrap_or_else(|_| {
+            eprintln!("line {}: expected a score, got {line:?}", n + 1);
+            process::exit(1);
+        });
         let mut pos = Position::new();
-        if pos.play_seq(seq) != seq.len() {
+        if play_bench_seq(&mut pos, seq) != seq.len() {
             eprintln!("line {}: cannot play {seq}", n + 1);
             fail += 1;
             continue;
@@ -518,6 +550,8 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
         solver.reset_nodes();
         let r = solver.solve(pos);
         total_nodes += r.nodes;
+        let label = if seq.is_empty() { "-" } else { seq };
+        println!("{label} {} {} {}", r.score, r.nodes, r.micros);
         if r.score != expect {
             eprintln!(
                 "FAIL {}: got {} want {}  seq={seq}  nodes={}",
@@ -538,7 +572,7 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
     let dt = start.elapsed().as_secs_f64();
     eprintln!();
     let n = ok + fail;
-    println!(
+    eprintln!(
         "{}: {ok}/{n} correct, {fail} fail, {} nodes, {:.3}s, {:.0} knodes/s",
         path.display(),
         total_nodes,
