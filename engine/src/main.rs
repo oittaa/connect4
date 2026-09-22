@@ -503,12 +503,20 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
         }
         let line = line.unwrap();
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         let mut parts = line.split_whitespace();
-        let seq = parts.next().unwrap();
-        let expect: i32 = parts.next().unwrap().parse().unwrap();
+        let first = parts.next().unwrap();
+        // A lone score is the empty board. Every other line is `sequence score`.
+        let (seq, expect_tok) = match parts.next() {
+            Some(score) => (first, score),
+            None => ("", first),
+        };
+        let expect: i32 = expect_tok.parse().unwrap_or_else(|_| {
+            eprintln!("line {}: expected a score, got {line}", n + 1);
+            process::exit(1);
+        });
         let mut pos = Position::new();
         if pos.play_seq(seq) != seq.len() {
             eprintln!("line {}: cannot play {seq}", n + 1);
@@ -518,6 +526,8 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
         solver.reset_nodes();
         let r = solver.solve(pos);
         total_nodes += r.nodes;
+        let label = if seq.is_empty() { "-" } else { seq };
+        println!("{label} {} {} {}", r.score, r.nodes, r.micros);
         if r.score != expect {
             eprintln!(
                 "FAIL {}: got {} want {}  seq={seq}  nodes={}",
@@ -538,7 +548,7 @@ fn run_bench(solver: &mut Solver, path: &Path, limit: usize) {
     let dt = start.elapsed().as_secs_f64();
     eprintln!();
     let n = ok + fail;
-    println!(
+    eprintln!(
         "{}: {ok}/{n} correct, {fail} fail, {} nodes, {:.3}s, {:.0} knodes/s",
         path.display(),
         total_nodes,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"math/bits"
 	"os"
@@ -487,27 +488,110 @@ func (s *Solver) BestMove(pos Position) (int, int) {
 	return bestCol, target
 }
 
-func main() {
-	var profFile, seq string
+// runBench scores each position in a Pons file (sequence score). One solver
+// serves the whole file, so the transposition table stays warm. Nodes and
+// time are per position. A line that is only a score is the empty board.
+// There is no opening book.
+func runBench(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot open %s: %v\n", path, err)
+		return 1
+	}
+	defer f.Close()
 
+	solver := NewSolver()
+	ok, fail := 0, 0
+	var totalNodes uint64
+	fileStart := time.Now()
+	scanner := bufio.NewScanner(f)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		var seq, expectTok string
+		switch len(fields) {
+		case 1:
+			expectTok = fields[0]
+		case 2:
+			seq, expectTok = fields[0], fields[1]
+		default:
+			fmt.Fprintf(os.Stderr, "line %d: expected sequence score, got %q\n", lineNo, line)
+			return 1
+		}
+		var expect int
+		if _, err := fmt.Sscan(expectTok, &expect); err != nil {
+			fmt.Fprintf(os.Stderr, "line %d: expected a score, got %q\n", lineNo, line)
+			return 1
+		}
+
+		var pos Position
+		if n := pos.playSeq(seq); n != len(seq) {
+			fmt.Fprintf(os.Stderr, "line %d: cannot play %s\n", lineNo, seq)
+			fail++
+			continue
+		}
+		solver.nodes = 0
+		start := time.Now()
+		score := solver.scorePosition(pos)
+		micros := time.Since(start).Microseconds()
+		totalNodes += solver.nodes
+		label := seq
+		if label == "" {
+			label = "-"
+		}
+		fmt.Printf("%s %d %d %d\n", label, score, solver.nodes, micros)
+		if score != expect {
+			fmt.Fprintf(os.Stderr, "FAIL %d: got %d want %d seq=%s nodes=%d\n", lineNo, score, expect, seq, solver.nodes)
+			fail++
+		} else {
+			ok++
+		}
+		if lineNo%100 == 0 {
+			fmt.Fprintf(os.Stderr, "\r%d ok, %d fail", lineNo, fail)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "read %s: %v\n", path, err)
+		return 1
+	}
+	fmt.Fprintln(os.Stderr)
+	elapsed := time.Since(fileStart).Seconds()
+	n := ok + fail
+	kns := 0.0
+	if elapsed > 0 {
+		kns = float64(totalNodes) / elapsed / 1000.0
+	}
+	fmt.Fprintf(os.Stderr, "%s: %d/%d correct, %d fail, %d nodes, %.3fs, %.0f knodes/s\n", path, ok, n, fail, totalNodes, elapsed, kns)
+	if fail > 0 {
+		return 1
+	}
+	return 0
+}
+
+func main() {
+	var profFile string
+	args := make([]string, 0, len(os.Args)-1)
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
-		switch {
-		case arg == "-cpuprofile" || arg == "--cpuprofile":
+		if arg == "-cpuprofile" || arg == "--cpuprofile" {
 			if i+1 < len(os.Args) {
 				i++
 				profFile = os.Args[i]
 			}
-		case arg == "best-move" || strings.HasPrefix(arg, "-"):
 			continue
-		case seq == "":
-			seq = arg
 		}
+		args = append(args, arg)
 	}
 
 	if profFile == "" {
 		profFile = os.Getenv("CPUPROFILE")
 	}
+	var prof *os.File
 	if profFile != "" {
 		f, err := os.Create(profFile)
 		if err != nil {
@@ -518,7 +602,36 @@ func main() {
 			fmt.Fprintf(os.Stderr, "cpuprofile: %v\n", err)
 			os.Exit(1)
 		}
-		defer pprof.StopCPUProfile()
+		prof = f
+	}
+	exitCode := 0
+	defer func() {
+		if prof != nil {
+			pprof.StopCPUProfile()
+			prof.Close()
+		}
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
+	if len(args) > 0 && args[0] == "bench" {
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: c4solver-go bench FILE")
+			exitCode = 2
+			return
+		}
+		exitCode = runBench(args[1])
+		return
+	}
+
+	seq := ""
+	for _, arg := range args {
+		if arg == "best-move" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		seq = arg
+		break
 	}
 
 	var pos Position
