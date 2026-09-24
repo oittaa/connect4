@@ -98,7 +98,7 @@ CLI (after `cargo build --release -p engine`):
 
 ### Go solver (`gosolver/`)
 
-The module is `github.com/oittaa/connect4` (`go.mod`). Build the `gosolver` package, not `main.go` alone, so `prefetch_amd64.s` is linked.
+The module is `github.com/oittaa/connect4` (`go.mod`). Build the `gosolver` package, not `main.go` alone, so the architecture-specific prefetch assembly is linked (`PREFETCHT0` on amd64, `PRFM PLDL1KEEP` on arm64). Other architectures skip the child-prefetch work.
 
 Build with PGO (inlines hot functions like `computeWinningPosition`):
 

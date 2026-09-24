@@ -419,16 +419,19 @@ func (s *Solver) negamax(pos Position, alpha, beta int) int {
 
 	// Start the child probes before threat scoring. At most seven lines,
 	// and moveScore is enough work for those fetches to land.
-	var child Position
-	for i := Width - 1; i >= 0; i-- {
-		col := columnOrder[i]
-		mv := possible & columnMask(col)
-		if mv == 0 {
-			continue
+	// Compile out the key calculations too when no prefetch is available.
+	if prefetchEnabled {
+		var child Position
+		for i := Width - 1; i >= 0; i-- {
+			col := columnOrder[i]
+			mv := possible & columnMask(col)
+			if mv == 0 {
+				continue
+			}
+			child = pos
+			child.playBits(mv)
+			s.tt.prefetchKey(searchKey(child))
 		}
-		child = pos
-		child.playBits(mv)
-		s.tt.prefetchKey(searchKey(child))
 	}
 
 	var moves moveList
