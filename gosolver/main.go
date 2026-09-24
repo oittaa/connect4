@@ -296,6 +296,21 @@ func (t *Table) put(key uint64, score int, flag uint8) {
 	*(*uint8)(unsafe.Add(unsafe.Pointer(t.valsPtr), i)) = packed
 }
 
+// prefetchKey asks the CPU to pull this slot's key fragment into cache.
+// The load itself stays in get; this only overlaps the wait with later work.
+func (t *Table) prefetchKey(key uint64) {
+	i := uintptr(key % TTSize)
+	prefetchAddr(unsafe.Add(unsafe.Pointer(t.keysPtr), i*4))
+}
+
+func searchKey(p Position) uint64 {
+	k := p.current + p.mask
+	if p.moves <= SymmPly {
+		return canonicalKey(k)
+	}
+	return k
+}
+
 type moveEntry struct {
 	mv    uint64
 	score int
@@ -400,6 +415,20 @@ func (s *Solver) negamax(pos Position, alpha, beta int) int {
 				}
 			}
 		}
+	}
+
+	// Start the child probes before threat scoring. At most seven lines,
+	// and moveScore is enough work for those fetches to land.
+	var child Position
+	for i := Width - 1; i >= 0; i-- {
+		col := columnOrder[i]
+		mv := possible & columnMask(col)
+		if mv == 0 {
+			continue
+		}
+		child = pos
+		child.playBits(mv)
+		s.tt.prefetchKey(searchKey(child))
 	}
 
 	var moves moveList
