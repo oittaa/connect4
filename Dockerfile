@@ -1,6 +1,6 @@
 FROM node:26-slim AS node
 
-FROM rust:1.98.1-slim AS toolchain
+FROM rust:1.99.0-slim AS toolchain
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends make \
